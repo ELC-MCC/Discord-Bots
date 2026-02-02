@@ -86,10 +86,12 @@ class PrinterBot(discord.Client):
             await asyncio.sleep(5)  # Check every 5 seconds
 
     async def check_printer(self, ip):
-        url = f"http://{ip}:7125/printer/objects/query?print_stats&virtual_sdcard"
+        # Try standard HTTP port 80 (Elegoo often proxies Moonraker here)
+        # Endpoint: /printer/objects/query
+        url = f"http://{ip}/printer/objects/query?print_stats&virtual_sdcard"
         
         try:
-            print(f"DEBUG: Checking {ip}...")
+            print(f"DEBUG: Checking {ip} on port 80...")
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=3) as response:
                     print(f"DEBUG: {ip} responded with {response.status}")
