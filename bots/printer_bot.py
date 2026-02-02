@@ -89,8 +89,10 @@ class PrinterBot(discord.Client):
         url = f"http://{ip}:7125/printer/objects/query?print_stats&virtual_sdcard"
         
         try:
+            print(f"DEBUG: Checking {ip}...")
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=3) as response:
+                    print(f"DEBUG: {ip} responded with {response.status}")
                     if response.status != 200:
                         return
                     
@@ -102,11 +104,14 @@ class PrinterBot(discord.Client):
                     current_state = print_stats.get('state', 'unknown')
                     filename = print_stats.get('filename', 'Unknown')
                     
+                    print(f"DEBUG: {ip} State: {current_state}, File: {filename}")
+
                     # Get last state
                     last_state = self.printer_states.get(ip, {}).get('state', 'unknown')
                     
                     # Detect Changes
                     if current_state != last_state:
+                         print(f"DEBUG: State changed from {last_state} to {current_state}")
                          await self.handle_state_change(ip, last_state, current_state, print_stats)
                     
                     # Update State
@@ -116,8 +121,7 @@ class PrinterBot(discord.Client):
                     }
 
         except Exception as e:
-            # Optionally log connection errors, but verbose
-            pass
+            print(f"DEBUG: Failed to connect to {ip}: {e}")
 
     async def handle_state_change(self, ip, old_state, new_state, stats):
         if not self.log_channel_id:
