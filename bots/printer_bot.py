@@ -90,10 +90,15 @@ class PrinterBot(discord.Client):
         # We will try a few common paths.
         
         paths = [
-            f"http://{ip}:7125/printer/objects/query?print_stats&virtual_sdcard", # Standard
-            f"http://{ip}/moonraker/printer/objects/query?print_stats&virtual_sdcard", # Reverse Proxy 1
-            f"http://{ip}/printer/objects/query?print_stats&virtual_sdcard", # Reverse Proxy 2
-            f"http://{ip}:8080/printer/objects/query?print_stats&virtual_sdcard", # Backup Port
+            # Check 1: Standard Reverse Proxy (Fluidd/Mainsail defaults)
+            f"http://{ip}/printer/objects/query?print_stats&virtual_sdcard", 
+            # Check 2: "Moonraker" specific prefix
+            f"http://{ip}/moonraker/printer/objects/query?print_stats&virtual_sdcard", 
+            # Check 3: Maybe it is just /api style?
+            f"http://{ip}/api/printer/objects/query?print_stats&virtual_sdcard",
+            f"http://{ip}/server/info", # Generic info endpoint
+            # Check 4: Port 7125 (Standard)
+            f"http://{ip}:7125/printer/objects/query?print_stats&virtual_sdcard", 
         ]
 
         for url in paths:
