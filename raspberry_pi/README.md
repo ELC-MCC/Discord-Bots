@@ -49,4 +49,3 @@ Then restart the service to load the tokens:
 ```bash
 sudo systemctl restart discord-bots
 ```
-aksdfl;ksl;dfkla;skd
