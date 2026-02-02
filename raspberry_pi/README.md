@@ -28,7 +28,8 @@ This folder contains everything you need to run these bots on a Raspberry Pi wit
 You must create your `.env` file with your tokens!
 
 ```bash
-nano /home/pi/Discord-Bots/.env
+cd ~/Discord-Bots
+nano .env
 ```
 
 Paste your variables inside:
