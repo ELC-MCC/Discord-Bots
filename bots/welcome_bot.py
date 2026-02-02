@@ -1,6 +1,7 @@
 import discord
 import time
 import random
+import os
 
 class WelcomeBot(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -38,7 +39,7 @@ class WelcomeBot(discord.Client):
         guild = member.guild
 
         # Try to find the specific channel by ID
-        target_channel_id = 886081479736709131
+        target_channel_id = int(os.getenv('WELCOME_CHANNEL_ID', '0'))
         channel = guild.get_channel(target_channel_id)
 
         # Fallback to name search if ID not found (e.g., bot in a different server)
@@ -84,13 +85,18 @@ class WelcomeBot(discord.Client):
             )
             embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
             
+            # Fetch channel IDs from env
+            general_id = os.getenv('GENERAL_CHANNEL_ID')
+            intro_id = os.getenv('INTRODUCTIONS_CHANNEL_ID')
+            maker_id = os.getenv('MAKER_GENERAL_CHANNEL_ID')
+
             # Add "Where to Start" field
             embed.add_field(
                 name="🚀 Where to Start",
                 value=(
-                    "• <#886031679595114528> - General Chat\n"
-                    "• <#1412963436102549511> - Introductions\n"
-                    "• <#1347068830094069780> - Maker General"
+                    f"• <#{general_id}> - General Chat\n"
+                    f"• <#{intro_id}> - Introductions\n"
+                    f"• <#{maker_id}> - Maker General"
                 ),
                 inline=False
             )

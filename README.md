@@ -30,6 +30,10 @@ A friendly bot that welcomes new members with engineering-themed puns!
 3.  Create a `.env` file in the root directory:
     ```ini
     WELCOME_BOT_TOKEN=your_token_here
+    WELCOME_CHANNEL_ID=your_channel_id_here
+    GENERAL_CHANNEL_ID=your_general_channel_id
+    INTRODUCTIONS_CHANNEL_ID=your_intro_channel_id
+    MAKER_GENERAL_CHANNEL_ID=your_maker_channel_id
     ```
 
 ## Usage
