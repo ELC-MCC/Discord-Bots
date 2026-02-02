@@ -48,7 +48,6 @@ MAKER_GENERAL_CHANNEL_ID=123456789
 
 # --- Role IDs ---
 MEMBER_ROLE_ID=id_to_give_new_users
-ROBOTICS_CLUB_ROLE_ID=id_for_robotics_club
 ```
 
 ---
