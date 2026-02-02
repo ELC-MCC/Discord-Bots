@@ -1,5 +1,6 @@
 import discord
 import time
+import random
 
 class WelcomeBot(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -51,13 +52,50 @@ class WelcomeBot(discord.Client):
                     break
         
         if channel:
+            # List of Engineering Puns
+            puns = [
+                # Electrical
+                "Welcome! We hope you have the *potential* to be great here!",
+                "Ohm my god, a new member!",
+                "We're *currently* very excited to meet you!",
+                "You act like a sine wave, you're always around!",
+                "Don't be *resistant* to saying hello!",
+                "We've been *waiting* for you with high frequency!",
+                "Watt is up? Welcome to the team!",
+                # Mechanical
+                "We are *geared* up to meet you!",
+                "It is *riveting* to have you here!",
+                "We hope you *weld* well with the team!",
+                "Let's *torque* about your projects!",
+                "You make our team run like a well-oiled machine!",
+                "We're under a lot of *pressure* to make a good impression!"
+            ]
+            
+            title = random.choice(puns)
+            
+            # Random vibrant color
+            colors = [0x00FFFF, 0xFF00FF, 0x00FF00, 0xFFA500, 0xFFFF00, 0x0000FF]
+            color = random.choice(colors)
+
             embed = discord.Embed(
-                title=f"Welcome to the ELC, {member.name}!",
-                description=f"We are excited to have you here, {member.mention}. Please check out the rules and introduce yourself!",
-                color=discord.Color.blue()
+                title=title,
+                description=f"Welcome to the ELC, {member.mention}! We are excited to have you here. Please check out the rules and introduce yourself!",
+                color=color
             )
             embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
-            embed.set_footer(text=f"Member #{guild.member_count}")
+            
+            # Add "Where to Start" field
+            embed.add_field(
+                name="🚀 Where to Start",
+                value=(
+                    "• <#886031679595114528> - General Chat\n"
+                    "• <#1412963436102549511> - Introductions\n"
+                    "• <#1347068830094069780> - Maker General"
+                ),
+                inline=False
+            )
+            
+            # No footer as requested
             
             try:
                 await channel.send(embed=embed)
