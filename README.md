@@ -5,7 +5,8 @@ This repository houses custom Discord bots for the **Engineering Leadership Coun
 ## Features
 
 *   **Jeff the Doorman (Welcome Bot)**:
-    *   Targets specific welcome channels securely.
+    *   **Auto-Role**: Automatically assigns the "Member" role (configured in `.env`) to new users.
+    *   **Targets specific welcome channels securely**.
     *   Greets new members with random Engineering Puns (Electrical/Mechanical).
     *   Displays a "Where to Start" guide linking to key channels.
     *   Uses vibrant, randomized embed colors.
@@ -36,6 +37,9 @@ This repository houses custom Discord bots for the **Engineering Leadership Coun
 3.  Create a `.env` file in the root directory:
     ```ini
     WELCOME_BOT_TOKEN=your_token_here
+    ROLE_MANAGER_TOKEN=your_role_bot_token
+    MEMBER_ROLE_ID=id_for_initial_member_role
+    ROBOTICS_CLUB_ROLE_ID=id_for_robotics_role
     WELCOME_CHANNEL_ID=your_channel_id_here
     GENERAL_CHANNEL_ID=your_general_channel_id
     INTRODUCTIONS_CHANNEL_ID=your_intro_channel_id
