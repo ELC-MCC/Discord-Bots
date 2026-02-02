@@ -1,11 +1,16 @@
 import asyncio
 import os
+import sys
 import discord
 from dotenv import load_dotenv
+
+# Add parent directory to sys.path to allow imports from bots folder
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from bots.role_bot import RoleBot
 
-# Load environment variables
-load_dotenv()
+# Load environment variables (from parent dir .env)
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
 
 async def run_role_bot():
     print("🤖 Starting Sudo Master (Role Bot) ONLY...")

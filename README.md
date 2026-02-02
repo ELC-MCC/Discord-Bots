@@ -49,10 +49,19 @@ This repository houses custom Discord bots for the **Engineering Leadership Coun
 ## Usage
 
 ### 1. Run the Bots
+**Production (Run All):**
 ```bash
 python main.py
 ```
-*Both "Jeff the Doorman" and "Sudo Master" will start simultaneously.*
+
+**Testing Only One Bot:**
+```bash
+# Sudo Master Only
+python scripts/run_role_bot.py
+
+# Jeff the Doorman Only
+python scripts/run_welcome_bot.py
+```
 
 ### 2. Setup Role Menu (Sudo Master)
 To create the role signup menu:
