@@ -39,15 +39,7 @@ async def run_bots():
     else:
         print("Warning: ROLE_MANAGER_TOKEN not found in .env")
 
-    # 3. 3D Print Observer
-    printer_token = os.getenv('PRINTER_OBSERVER_TOKEN')
-    if printer_token:
-        from bots.printer_bot import PrinterBot
-        printer_bot = PrinterBot(intents=intents)
-        bots.append(printer_bot.start(printer_token.strip()))
-    else:
-        # Optional bot, just warn or ignore
-        pass
+
 
     if not bots:
         print("Error: No bot tokens found. Exiting.")
