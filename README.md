@@ -17,11 +17,13 @@ This repository contains the custom Discord bots developed for the **Engineering
     *   *Architecture*: Stateless design; the bot reads its own messages to map reactions to roles, requiring no database.
 *   **Access Control**: Critical commands are restricted to users with Administrator permissions.
 
-### 3. Event Messenger Bot
+### 3. The Event Loop
 *   **Event Scheduling**: Allows administrators to schedule upcoming events via commands.
-    *   *Usage*: `!add_event "Name" "YYYY-MM-DD HH:MM" "Description"`
-    *   *Example*: `!add_event "General Meeting" "2024-10-15 18:00" "Byrne Hall"`
+    *   *Usage*: `!add_event "Name" "YYYY-MM-DD" "HH:MM" "Description" [ImageURL]`
+    *   *Example*: `!add_event "General Meeting" "2024-10-15" "18:00" "Byrne Hall"`
+    *   *Attachments*: You can also **attach an image** to the command message instead of providing a URL.
 *   **Automated Notifications**: Automatically posts an announcement to a designated channel when the scheduled event time arrives.
+*   **Visuals**: Supports embedding images in event announcements for better engagement.
 *   **Persistence**: Stores event data locally in `events.json` to ensure data integrity across reliable restarts.
 *   **Management**:
     *   `!list_events`: Displays a list of all upcoming scheduled events.
