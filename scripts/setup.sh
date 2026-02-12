@@ -4,8 +4,8 @@
 # This script guides the user through setting up the bots on a Raspberry Pi.
 
 # Secrets
-# SHA-256 Hash of the expected secret (Default: ELC-SECURE-2026)
-EXPECTED_HASH="a3458bf5967df24d08103d157a9202a0e4ce428173429977823d146200216515"
+# SHA-256 Hash of the expected secret (High Entropy)
+EXPECTED_HASH="52bcb31624bca5841260776260b6e2d96684f9226b690bad9b5b02157c54d510"
 
 echo "============================================="
 echo "   ELC Discord Bots Setup Wizard"

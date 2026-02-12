@@ -2,3 +2,7 @@
 __pycache__/
 *.pyc
 
+
+# Secrets
+admin_secret.txt
+elc-admin-key.txt
