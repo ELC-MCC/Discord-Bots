@@ -5,121 +5,84 @@ This repository contains the custom Discord bots developed for the **Engineering
 ## Features
 
 ### 1. Jeff the Doorman (Welcome Bot)
-*   **Smart Greetings**: Welcomes new members with randomized engineering-themed messages (covering Electrical, Mechanical, Civil, and other disciplines).
-*   **Auto-Role**: Automatically assigns the "Member" role to new users upon joining, configurable via environment variables.
-*   **Orientation**: Provides a "Where to Start" section with links to key channels (e.g., General, Introductions).
-*   **Visual Integration**: Generates embedded messages with randomized colors for visual variety.
-*   **Anti-Spam**: Includes a debounce mechanism to prevent duplicate welcome messages.
+*   **Smart Greetings**: Welcomes new members with randomized engineering-themed messages.
+*   **Auto-Role**: Automatically assigns the "Member" role to new users.
+*   **Orientation**: Provides a "Where to Start" section with links to key channels.
 
 ### 2. Sudo Master (Role Manager)
 *   **Reaction Roles**: Facilitates ad-hoc role assignment via reaction monitoring.
-    *   *Usage*: `!setup_reaction #channel "Title" <Emoji> @Role1 <Emoji> @Role2 ...`
-    *   *Example*: `!setup_reaction #roles "Choose your Class" ⚔️ @Warrior 🛡️ @Paladin`
-    *   *Architecture*: Stateless design; the bot reads its own messages to map reactions to roles.
-*   **Access Control**: Critical commands are restricted to users with Administrator permissions.
+    *   *Usage*: `!setup_reaction #channel "Title" <Emoji> @Role ...`
+    *   *Supports*: Unicode Emojis (🔴) and Custom Discord Emojis (`<:pepe:123>`).
+*   **Access Control**: Critical commands are restricted to Administrators.
 
-### 3. The Event Loop
-*   **Event Scheduling**: Allows administrators to schedule upcoming events via commands.
+### 3. The Event Loop (Event & Dashboard Bot)
+*   **Event Scheduling**: Schedule events with `!add_event`.
     *   *Usage*: `!add_event "Name" "YYYY-MM-DD" "HH:MM" "Description" [ImageURL]`
-    *   *Example*: `!add_event "General Meeting" "2024-10-15" "18:00" "Byrne Hall"`
-    *   *Attachments*: You can also **attach an image** to the command message instead of providing a URL.
-*   **Automated Notifications**: Automatically posts an announcement to a designated channel when the scheduled event time arrives.
-*   **Visuals**: Supports embedding images in event announcements for better engagement.
-*   **Persistence**: Stores event data locally in `events.json` to ensure data integrity across reliable restarts.
-*   **Management**:
-    *   `!list_events`: Displays a list of all upcoming scheduled events.
-    *   `!delete_event <ID>`: Removes an event from the schedule.
+*   **Persistent Dashboard**: Keeps a pinned message in a channel up-to-date with all upcoming events.
+    *   *Setup*: `!setup_dashboard #channel`
+    *   *Auto-Update*: Updates automatically when events are added, deleted, or expire.
+*   **Automated Notifications**: Posts announcements when events start.
+
+---
+
+## Configuration
+
+### 1. Bot Toggles (`bot_config.py`)
+You can enable/disable specific bots without changing code. Edit `bot_config.py` in the root directory:
+```python
+ENABLE_ROLE_BOT = True
+ENABLE_WELCOME_BOT = True
+ENABLE_EVENT_BOT = True
+```
+
+### 2. Branding (`bot_config.py`)
+Customize bot nicknames and footer text in `bot_config.py` to match your organization's branding.
+
+### 3. Environment Variables (`.env`)
+The setup scripts will help you generate this file from `.env.example`.
 
 ---
 
 ## Setup and Installation
 
-### Prerequisites
-*   Python 3.8 or higher
-*   Discord Bot Token(s) obtained from the Discord Developer Portal.
-*   **Intents**: The `Presence`, `Server Members`, and `Message Content` intents must be enabled in the Discord Developer Portal.
+We provide interactive scripts to set up the bots on a Raspberry Pi (or any Linux environment).
 
-### 1. Installation
-Clone the repository and install the required dependencies:
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/Engineering-Leadership-Council/Discord-Bots.git
 cd Discord-Bots
-pip install -r requirements.txt
 ```
 
-### 2. Configuration
-
-**Environment Variables**
-Create a `.env` file in the root directory.
-
-```ini
-# --- Welcome Bot ---
-WELCOME_BOT_TOKEN=your_token_here
-WELCOME_CHANNEL_ID=123456789
-GENERAL_CHANNEL_ID=123456789
-INTRODUCTIONS_CHANNEL_ID=123456789
-MAKER_GENERAL_CHANNEL_ID=123456789
-
-# --- Role Manager ---
-ROLE_MANAGER_TOKEN=your_token_here
-MEMBER_ROLE_ID=id_to_give_new_users
-
-# --- Event Bot ---
-EVENT_BOT_TOKEN=your_token_here
-EVENT_CHANNEL_ID=channel_to_post_announcements
-```
-
-**Bot Names & Branding**
-You can customize the public-facing names and footers of the bots by editing `bot_config.py` in the root directory.
-
----
-
-## Usage
-
-### Production (Run All Bots)
-To execute all bots simultaneously (e.g., for deployment):
+### 2. Run the Setup Script
+Make the scripts executable:
 ```bash
-python main.py
+chmod +x scripts/setup_main.sh scripts/setup_fork.sh
 ```
 
-### Development (Run Individually)
-To test specific components in isolation:
+**Option A: Main ELC Repo** (Default)
 ```bash
-# Run Sudo Master (Role Bot)
-python scripts/run_role_bot.py
-
-# Run Jeff the Doorman (Welcome Bot)
-python scripts/run_welcome_bot.py
-
-# Run Event Messenger
-python scripts/run_event_bot.py
+./scripts/setup_main.sh
 ```
 
----
-
-## Deployment Information
-
-The application is designed to run as a system service.
-
-### Service Management
-If running on a Linux-based system (e.g., Raspberry Pi) via systemd:
-
-1.  **Update**: Pull the latest changes from the repository.
-2.  **Restart**: Restart the service to apply changes.
-
+**Option B: Custom Fork** (For other organizations)
 ```bash
-cd ~/Discord-Bots
-git pull
+./scripts/setup_fork.sh
+```
+
+**These scripts will:**
+1.  Verify/Install Python dependencies (`requirements.txt`).
+2.  Help you create and edit your `.env` file.
+3.  **Install the Systemd Service** for auto-updates (optional but recommended).
+
+### 3. Auto-Update Service
+If you installed the service, the bot will:
+-   Start automatically on boot.
+-   **Pull the latest code** from GitHub every time it restarts.
+-   Restart automatically if it crashes.
+
+To manage the service manually:
+```bash
+sudo systemctl status discord-bots
 sudo systemctl restart discord-bots
+sudo systemctl stop discord-bots
 ```
-
-### Logging
-Monitor the service logs using the journalctl command:
-```bash
-journalctl -u discord-bots -f
-```
-
-### Troubleshooting
-*   **Service Failures**: Check system logs for stack traces or error messages.
-*   **Permission Errors**: Ensure the Bot role has the "Manage Roles" and "Send Messages" permissions within the Discord server.
-*   **Notification Issues**: Verify that `EVENT_CHANNEL_ID` is correct and that the bot has permission to view and post in the target channel.
