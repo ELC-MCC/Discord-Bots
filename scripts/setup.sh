@@ -4,7 +4,8 @@
 # This script guides the user through setting up the bots on a Raspberry Pi.
 
 # Secrets
-ELC_ADMIN_CODE="ELC-ADMIN"
+# SHA-256 Hash of the expected secret (Default: ELC-SECURE-2026)
+EXPECTED_HASH="a3458bf5967df24d08103d157a9202a0e4ce428173429977823d146200216515"
 
 echo "============================================="
 echo "   ELC Discord Bots Setup Wizard"
@@ -36,12 +37,17 @@ if [ "$repo_choice" == "1" ]; then
         if [ -d "$dir" ]; then
             KEY_FILE=$(find "$dir" -maxdepth 3 -name "elc-admin-key.txt" 2>/dev/null | head -n 1)
             if [ ! -z "$KEY_FILE" ]; then
-                # Check contents
-                CONTENT=$(cat "$KEY_FILE" | tr -d '[:space:]')
-                if [ "$CONTENT" == "$ELC_ADMIN_CODE" ]; then
+                echo "File found at: $KEY_FILE"
+                # Check contents via SHA-256 Hash
+                # Read file, trim whitespace, compute hash, take first field
+                FILE_HASH=$(cat "$KEY_FILE" | tr -d '[:space:]' | sha256sum | awk '{print $1}')
+                
+                if [ "$FILE_HASH" == "$EXPECTED_HASH" ]; then
                     FOUND_KEY="true"
-                    echo "✅ Key found at: $KEY_FILE"
+                    echo "✅ Key Verified!"
                     break
+                else
+                    echo "⚠️ Key file found, but content is incorrect."
                 fi
             fi
         fi
