@@ -2,6 +2,7 @@ import discord
 import time
 import random
 import os
+import bot_config
 
 class WelcomeBot(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -14,8 +15,8 @@ class WelcomeBot(discord.Client):
         # Set nickname in all servers
         for guild in self.guilds:
             try:
-                await guild.me.edit(nick="Jeff the Doorman")
-                print(f"Changed nickname to 'Jeff the Doorman' in {guild.name}")
+                await guild.me.edit(nick=bot_config.WELCOME_BOT_NICKNAME)
+                print(f"Changed nickname to '{bot_config.WELCOME_BOT_NICKNAME}' in {guild.name}")
             except discord.Forbidden:
                 print(f"Missing permissions to change nickname in {guild.name}")
             except Exception as e:

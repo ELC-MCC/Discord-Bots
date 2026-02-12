@@ -4,6 +4,7 @@ import os
 import asyncio
 from datetime import datetime
 from typing import List, Dict
+import bot_config
 
 class EventBot(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -32,8 +33,8 @@ class EventBot(discord.Client):
         # Set nickname
         for guild in self.guilds:
             try:
-                await guild.me.edit(nick="The Event Loop")
-                print(f"Changed nickname to 'The Event Loop' in {guild.name}")
+                await guild.me.edit(nick=bot_config.EVENT_BOT_NICKNAME)
+                print(f"Changed nickname to '{bot_config.EVENT_BOT_NICKNAME}' in {guild.name}")
             except Exception as e:
                 print(f"Nickname change failed in {guild.name}: {e}")
 
@@ -72,7 +73,7 @@ class EventBot(discord.Client):
                             )
                             if event.get('image_url'):
                                 embed.set_image(url=event['image_url'])
-                            embed.set_footer(text="The Event Loop")
+                            embed.set_footer(text=bot_config.EVENT_BOT_FOOTER)
                             await channel.send(f"@everyone Event is starting now!", embed=embed)
                             print(f"Triggered event: {event['name']}")
                         else:

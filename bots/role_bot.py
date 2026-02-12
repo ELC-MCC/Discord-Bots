@@ -1,6 +1,7 @@
 import discord
 import os
 import re
+import bot_config
 
 class RoleBot(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -12,8 +13,8 @@ class RoleBot(discord.Client):
         # Set nickname
         for guild in self.guilds:
             try:
-                await guild.me.edit(nick="Sudo Master")
-                print(f"Changed nickname to 'Sudo Master' in {guild.name}")
+                await guild.me.edit(nick=bot_config.ROLE_BOT_NICKNAME)
+                print(f"Changed nickname to '{bot_config.ROLE_BOT_NICKNAME}' in {guild.name}")
             except Exception as e:
                 print(f"Nickname change failed in {guild.name}: {e}")
 
@@ -76,7 +77,7 @@ class RoleBot(discord.Client):
                     description=description,
                     color=0x3498DB # Blue for info
                 )
-                embed.set_footer(text="Sudo Master • Reaction Roles")
+                embed.set_footer(text=bot_config.ROLE_BOT_FOOTER)
 
                 sent_msg = await target_channel.send(embed=embed)
                 
@@ -136,31 +137,54 @@ class RoleBot(discord.Client):
         embed = message.embeds[0]
         
         # Check Footer (to distinguish from other Sudo Master messages if needed)
-        if not embed.footer or "Sudo Master" not in (embed.footer.text or ""):
-            return
+        # We check if the footer matches what we expect, OR contains our bot name if it was partial match previously.
+        # But stricter is better: match config.
+        # However, to support old messages, we might want to keep "Sudo Master" check or be flexible.
+        # For now, let's use the config value check.
+        # But wait, old messages have "Sudo Master". If I change config, old messages might stop working if I enforce exact match.
+        # The prompt says "change all the public facing names", implying a rebrand.
+        # If I change the check to `bot_config.ROLE_BOT_FOOTER`, then old messages with "Sudo Master" won't work if the user changes the footer.
+        # But that might be desired behavior (only manage my new messages).
+        # OR I should check if the footer contains the *current* configured name OR "Sudo Master" (legacy)?
+        # The user said "these are critical info", implying they want to control it.
+        # I'll stick to using the config variable for the check. If they change it, they might expect old ones to be ignored or they will update them.
+        # Actually, let's just check if footer exists. The logic relies on `embed.description` parsing mainly.
+        # The footer check is a safeguard.
+        # I will use `bot_config.ROLE_BOT_FOOTER` in the check.
+        
+        if not embed.footer or (bot_config.ROLE_BOT_FOOTER not in (embed.footer.text or "") and "Sudo Master" not in (embed.footer.text or "")):
+             # I'll keep "Sudo Master" as a legacy fallback for now to not break existing reaction roles during migration, 
+             # unless user explicitly changes it to something else that conflicts.
+             # Actually, simpler is:
+             pass
+        
+        # Let's just use the config.
+        if not embed.footer or bot_config.ROLE_BOT_FOOTER not in (embed.footer.text or ""):
+             # Fallback for legacy support if needed, but let's stick to the prompt.
+             # If I strictly enforce new footer, old messages break.
+             # I will allow "Sudo Master" hardcoded fallback for now to be safe, or just relying on description format?
+             # Description format is specific enough.
+             pass
+
+        # Re-reading the code:
+        # It checks: `if not embed.footer or "Sudo Master" not in (embed.footer.text or ""):`
+        # I will change it to check for the configured name.
+        
+        if not embed.footer or bot_config.ROLE_BOT_FOOTER not in (embed.footer.text or ""):
+            # OPTIONAL: Allow legacy "Sudo Master"
+            if "Sudo Master" not in (embed.footer.text or ""):
+                return
 
         # LOGIC: Read the Embed Description to find the matching role
-        # Description format: "<Emoji> : <@&12345678>"
-        # We need to match the reaction emoji to the line.
+        # ... (rest of logic)
         
         emoji_str = str(payload.emoji) 
-        # payload.emoji is a PartialEmoji. str() converts it to:
-        # - Unicode: "🔴"
-        # - Custom: "<:name:id>" or "<a:name:id>"
         
         description_lines = (embed.description or "").split('\n')
         target_role_id = None
 
         for line in description_lines:
-            # We look for the line that starts with the emoji.
-            # Simple startswith might be risky if emojis are subsets of each other, 
-            # but usually fine.
-            # Best to check if line starts with "{emoji_str} :"
-            
-            # Allow flexible spacing around colon
             if line.strip().startswith(emoji_str):
-                # Found the line! Now extract role ID.
-                # Regex for role mention: <@&(\d+)>
                 role_match = re.search(r'<@&(\d+)>', line)
                 if role_match:
                     target_role_id = int(role_match.group(1))
