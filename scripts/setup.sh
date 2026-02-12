@@ -18,12 +18,40 @@ echo "2) Custom Fork (Recommended for other orgs)"
 read -p "Select option (1/2): " repo_choice
 
 if [ "$repo_choice" == "1" ]; then
-    read -s -p "Enter ELC Admin Code: " admin_code
-    echo ""
-    if [ "$admin_code" == "$ELC_ADMIN_CODE" ]; then
+    echo "This option is restricted to official ELC hardware."
+    echo "Please insert the ELC Admin USB key now."
+    read -p "Press Enter when ready..."
+
+    # Search for the key file in common mount points
+    FOUND_KEY="false"
+    
+    # Check /media/pi (standard Raspberry Pi auto-mount) and /mnt (manual mounts)
+    # We use `find` to look for the specific file maxdepth 3 to ignore deep recursions
+    echo "Scanning for access key..."
+    
+    # Arrays of directories to search
+    SEARCH_DIRS=("/media" "/mnt" "/run/media")
+    
+    for dir in "${SEARCH_DIRS[@]}"; do
+        if [ -d "$dir" ]; then
+            KEY_FILE=$(find "$dir" -maxdepth 3 -name "elc-admin-key.txt" 2>/dev/null | head -n 1)
+            if [ ! -z "$KEY_FILE" ]; then
+                # Check contents
+                CONTENT=$(cat "$KEY_FILE" | tr -d '[:space:]')
+                if [ "$CONTENT" == "$ELC_ADMIN_CODE" ]; then
+                    FOUND_KEY="true"
+                    echo "✅ Key found at: $KEY_FILE"
+                    break
+                fi
+            fi
+        fi
+    done
+
+    if [ "$FOUND_KEY" == "true" ]; then
         echo "✅ Access Granted. Keeping Main Repo."
     else
-        echo "❌ Access Denied. You must use a Custom Fork."
+        echo "❌ Access Denied. Key file not found or invalid."
+        echo "Redirecting to Custom Fork setup..."
         repo_choice="2"
     fi
 fi
