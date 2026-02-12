@@ -3,63 +3,9 @@
 # Setup Script for ELC Discord Bots
 # This script guides the user through setting up the bots on a Raspberry Pi.
 
-# Secrets
-# SHA-256 Hash of the expected secret (High Entropy)
-EXPECTED_HASH="52bcb31624bca5841260776260b6e2d96684f9226b690bad9b5b02157c54d510"
-
-echo "============================================="
-echo "   ELC Discord Bots Setup Wizard"
-echo "============================================="
-
-# 1. Repo Setup
-echo ""
-echo "Do you want to initialize for the MAIN ELC Repo or a CUSTOM Fork?"
-echo "1) Main ELC Repo (Restricted)"
-echo "2) Custom Fork (Recommended for other orgs)"
-read -p "Select option (1/2): " repo_choice
-
 if [ "$repo_choice" == "1" ]; then
-    echo "This option is restricted to official ELC hardware."
-    echo "Please insert the ELC Admin USB key now."
-    read -p "Press Enter when ready..."
-
-    # Search for the key file in common mount points
-    FOUND_KEY="false"
-    
-    # Check /media/pi (standard Raspberry Pi auto-mount) and /mnt (manual mounts)
-    # We use `find` to look for the specific file maxdepth 3 to ignore deep recursions
-    echo "Scanning for access key..."
-    
-    # Arrays of directories to search
-    SEARCH_DIRS=("/media" "/mnt" "/run/media")
-    
-    for dir in "${SEARCH_DIRS[@]}"; do
-        if [ -d "$dir" ]; then
-            KEY_FILE=$(find "$dir" -maxdepth 3 -name "elc-admin-key.txt" 2>/dev/null | head -n 1)
-            if [ ! -z "$KEY_FILE" ]; then
-                echo "File found at: $KEY_FILE"
-                # Check contents via SHA-256 Hash
-                # Read file, trim whitespace, compute hash, take first field
-                FILE_HASH=$(cat "$KEY_FILE" | tr -d '[:space:]' | sha256sum | awk '{print $1}')
-                
-                if [ "$FILE_HASH" == "$EXPECTED_HASH" ]; then
-                    FOUND_KEY="true"
-                    echo "✅ Key Verified!"
-                    break
-                else
-                    echo "⚠️ Key file found, but content is incorrect."
-                fi
-            fi
-        fi
-    done
-
-    if [ "$FOUND_KEY" == "true" ]; then
-        echo "✅ Access Granted. Keeping Main Repo."
-    else
-        echo "❌ Access Denied. Key file not found or invalid."
-        echo "Redirecting to Custom Fork setup..."
-        repo_choice="2"
-    fi
+    echo "✅ Selected Main ELC Repo."
+    # No action needed, origin remains as checked out
 fi
 
 if [ "$repo_choice" == "2" ]; then
