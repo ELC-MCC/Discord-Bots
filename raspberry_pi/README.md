@@ -11,15 +11,25 @@ This folder contains the Discord Bots service for the Engineering Leadership Cou
     ```
 
 2.  **Run the Interactive Setup Script**:
+    
+    Make the scripts executable:
     ```bash
-    chmod +x scripts/setup.sh
-    ./scripts/setup.sh
+    chmod +x scripts/setup_main.sh scripts/setup_fork.sh
+    ```
+
+    **Option A: Main ELC Repo** (Default)
+    ```bash
+    ./scripts/setup_main.sh
+    ```
+
+    **Option B: Custom Fork** (For other organizations)
+    ```bash
+    ./scripts/setup_fork.sh
     ```
     
-    The script will ask you:
-    -   Whether to use the **Main ELC Repo** (requires Admin Code) or a **Custom Fork**.
-    -   To set up your `.env` file (it provides a template).
-    -   To install the **Systemd Service** for auto-updates.
+    Both scripts will help you:
+    -   Set up your `.env` file (it provides a template).
+    -   Install the **Systemd Service** for auto-updates.
 
 ## 🔑 Post-Setup
 

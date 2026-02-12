@@ -1,22 +1,21 @@
 #!/bin/bash
 
-# Setup Script for ELC Discord Bots
-# This script guides the user through setting up the bots on a Raspberry Pi.
+# Setup Script for Custom Fork
+# This script helps switch the repo origin to a user's fork and sets up the environment.
 
-if [ "$repo_choice" == "1" ]; then
-    echo "✅ Selected Main ELC Repo."
-    # No action needed, origin remains as checked out
-fi
+echo "============================================="
+echo "   ELC Discord Bots Setup (Custom Fork)"
+echo "============================================="
 
-if [ "$repo_choice" == "2" ]; then
-    read -p "Enter your Fork URL (e.g., https://github.com/YourOrg/Discord-Bots.git): " fork_url
-    if [ ! -z "$fork_url" ]; then
-        echo "Setting origin to $fork_url..."
-        git remote set-url origin "$fork_url"
-        echo "✅ Origin updated."
-    else
-        echo "⚠️ No URL provided. Keeping current origin."
-    fi
+# 1. Update Origin
+echo ""
+read -p "Enter your Fork URL (e.g., https://github.com/YourOrg/Discord-Bots.git): " fork_url
+if [ ! -z "$fork_url" ]; then
+    echo "Setting origin to $fork_url..."
+    git remote set-url origin "$fork_url"
+    echo "✅ Origin updated."
+else
+    echo "⚠️ No URL provided. Keeping current origin."
 fi
 
 # 2. Environment Setup
