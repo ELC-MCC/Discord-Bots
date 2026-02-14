@@ -176,7 +176,13 @@ class EventBot(discord.Client):
         if not self.bg_task:
             self.bg_task = self.loop.create_task(self.check_events())
             
-    def get_upcoming_embed(self) -> discord.Embed:
+    def get_date_suffix(self, day):
+        if 4 <= day <= 20 or 24 <= day <= 30:
+            return "th"
+        else:
+            return ["st", "nd", "rd"][day % 10 - 1]
+
+    def get_upcoming_embeds(self) -> List[discord.Embed]:
         # Filter for future events
         now = datetime.now()
         future_events = []
@@ -192,28 +198,55 @@ class EventBot(discord.Client):
         future_events.sort(key=lambda x: x[0])
         next_events = future_events[:3]
 
-        embed = discord.Embed(
-            title="Upcoming Events Filter",
-            description="Here are the next 3 scheduled events:",
-            color=0x3498DB
-        )
+        embeds = []
         
         if not next_events:
-            embed.description = "No upcoming events scheduled."
-        
-        for dt, event in next_events:
-            location = event.get('location', 'No location')
-            time_display = dt.strftime("%Y-%m-%d at %H:%M")
-            
-            embed.add_field(
-                name=f"{time_display} | {event['name']}",
-                value=f"Location: **{location}**\n{event['description']}",
-                inline=False
+            embed = discord.Embed(
+                title="📅 Upcoming Events",
+                description="No upcoming events scheduled.",
+                color=0x95A5A6
             )
+            embeds.append(embed)
+            return embeds
         
-        embed.set_footer(text="Updates automatically • Use !add_event to schedule more!")
-        embed.timestamp = now
-        return embed
+        # Header Embed
+        header = discord.Embed(
+            title="📅 Upcoming Events",
+            description="Here is what is coming up next:",
+            color=0x2C3E50
+        )
+        embeds.append(header)
+
+        for dt, event in next_events:
+            # Format: February 5th, 2026
+            day = dt.day
+            suffix = self.get_date_suffix(day)
+            date_str = dt.strftime(f"%B {day}{suffix}, %Y")
+            time_str = dt.strftime("%I:%M %p") # 5:00 PM
+
+            embed = discord.Embed(
+                title=event['name'],
+                color=0x3498DB
+            )
+            
+            description_text = (
+                f"**{date_str}** at **{time_str}**\n"
+                f"📍 **{event.get('location', 'No location')}**\n\n"
+                f"{event['description']}"
+            )
+            
+            embed.description = description_text
+            
+            if event.get('image_url'):
+                embed.set_image(url=event['image_url'])
+            
+            embeds.append(embed)
+
+        # Add footer to the last embed
+        embeds[-1].set_footer(text=bot_config.EVENT_BOT_FOOTER)
+        embeds[-1].timestamp = now
+        
+        return embeds
 
     async def update_upcoming_message(self):
         msg_id = self.data.get('upcoming_message_id')
@@ -233,7 +266,7 @@ class EventBot(discord.Client):
 
             try:
                 message = await channel.fetch_message(msg_id)
-                await message.edit(embed=self.get_upcoming_embed())
+                await message.edit(embeds=self.get_upcoming_embeds())
             except discord.NotFound:
                 # Message deleted, clear data
                 self.data['upcoming_message_id'] = None
@@ -316,46 +349,8 @@ class EventBot(discord.Client):
 
         # Command: !upcoming
         if message.content.startswith('!upcoming'):
-            if not self.events:
-                await message.channel.send("No upcoming events found.")
-                return
-
-            # Filter for future events
-            now = datetime.now()
-            future_events = []
-            for event in self.events:
-                try:
-                    event_time = datetime.strptime(event['time'], "%Y-%m-%d %H:%M")
-                    if event_time > now:
-                        future_events.append((event_time, event))
-                except ValueError:
-                    continue
-            
-            if not future_events:
-                await message.channel.send("No upcoming events found.")
-                return
-
-            # Sort by time and take top 3
-            future_events.sort(key=lambda x: x[0])
-            next_events = future_events[:3]
-
-            embed = discord.Embed(
-                title="Next 3 Upcoming Events",
-                color=0x3498DB
-            )
-            
-            for dt, event in next_events:
-                location = event.get('location', 'No location')
-                time_display = dt.strftime("%Y-%m-%d at %H:%M")
-                
-                embed.add_field(
-                    name=f"{time_display} | {event['name']}",
-                    value=f"Location: **{location}**\n{event['description']}",
-                    inline=False
-                )
-            
-            embed.set_footer(text="Use !add_event to schedule more!")
-            await message.channel.send(embed=embed)
+            embeds = self.get_upcoming_embeds()
+            await message.channel.send(embeds=embeds)
 
         # Command: !list_events (Lists ALL events)
         if message.content.startswith('!list_events'):
@@ -410,8 +405,8 @@ class EventBot(discord.Client):
                 return
             
              # Send initial message
-             embed = self.get_upcoming_embed()
-             msg = await message.channel.send(embed=embed)
+             embeds = self.get_upcoming_embeds()
+             msg = await message.channel.send(embeds=embeds)
              
              # Store ID
              self.data['upcoming_message_id'] = msg.id
