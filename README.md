@@ -22,8 +22,8 @@ A comprehensive event management system that keeps the community informed.
 #### **Command Reference:**
 | Command | Permission | Description |
 | :--- | :--- | :--- |
-| `!add_event` | Public | Sends a button to open the **Add Event** form (Name, Date, Time, Loc, Desc, Image). |
-| `!delete_event` | Public | Sends a button to open a private menu for deleting events. |
+| `!add_event` | **Admin** | Sends a button to open the **Add Event** form (Name, Date, Time, Loc, Desc, Image). |
+| `!delete_event` | **Admin** | Sends a button to open a private menu for deleting events. |
 | `!list_events` | Public | Displays a list of ALL currently scheduled events. |
 | `!upcoming` | Public | Shows the next 3 scheduled events in chat. |
 | `!setup_upcoming` | **Admin** | Creates the **Live Dashboard** message in the current channel. |
