@@ -13,6 +13,7 @@ class EventModal(ui.Modal, title="Add New Event"):
     name = ui.TextInput(label="Event Name", placeholder="Movie Night", max_length=100)
     date_str = ui.TextInput(label="Date (YYYY-MM-DD)", placeholder="2024-12-25", min_length=10, max_length=10)
     time_str = ui.TextInput(label="Time (HH:MM)", placeholder="20:00", min_length=5, max_length=5)
+    location = ui.TextInput(label="Location", placeholder="Main Hall", required=True, max_length=100)
     description = ui.TextInput(label="Description", style=discord.TextStyle.paragraph, placeholder="Watch movies together...", required=False, max_length=1000)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -66,6 +67,7 @@ class EventModal(ui.Modal, title="Add New Event"):
         new_event = {
             "name": self.name.value,
             "time": full_time_str,
+            "location": self.location.value,
             "description": self.description.value,
             "image_url": image_url,
             "created_by": interaction.user.id
@@ -139,7 +141,7 @@ class EventBot(discord.Client):
                         if channel:
                             embed = discord.Embed(
                                 title=f"Event Starting: {event['name']}",
-                                description=event['description'],
+                                description=f"📍 **{event.get('location', 'No location')}**\n{event['description']}",
                                 color=0x2ECC71,
                                 timestamp=now
                             )
@@ -187,4 +189,47 @@ class EventBot(discord.Client):
              button.callback = button_callback
              view.add_item(button)
              await message.channel.send("Click to add an event:", view=view)
+
+        # Command: !upcoming
+        if message.content.startswith('!upcoming'):
+            if not self.events:
+                await message.channel.send("No upcoming events found.")
+                return
+
+            # Filter for future events
+            now = datetime.now()
+            future_events = []
+            for event in self.events:
+                try:
+                    event_time = datetime.strptime(event['time'], "%Y-%m-%d %H:%M")
+                    if event_time > now:
+                        future_events.append((event_time, event))
+                except ValueError:
+                    continue
+            
+            if not future_events:
+                await message.channel.send("No upcoming events found.")
+                return
+
+            # Sort by time and take top 3
+            future_events.sort(key=lambda x: x[0])
+            next_events = future_events[:3]
+
+            embed = discord.Embed(
+                title="📅 Next 3 Upcoming Events",
+                color=0x3498DB
+            )
+            
+            for dt, event in next_events:
+                location = event.get('location', 'No location')
+                time_display = dt.strftime("%Y-%m-%d at %H:%M")
+                
+                embed.add_field(
+                    name=f"{time_display} | {event['name']}",
+                    value=f"📍 **{location}**\n{event['description']}",
+                    inline=False
+                )
+            
+            embed.set_footer(text="Use !add_event to schedule more!")
+            await message.channel.send(embed=embed)
 
