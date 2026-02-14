@@ -17,16 +17,15 @@ This repository contains the custom Discord bots developed for the **Engineering
 *   **Access Control**: Critical commands are restricted to Administrators.
 
 ### 3. The Event Loop (Event & Dashboard Bot)
-*   **Event Scheduling**: Schedule events with `!add_event`.
-    *   *Usage*: `!add_event "Name" "YYYY-MM-DD" "HH:MM" "Description" [ImageURL]`
-    *   *Example*: `!add_event "Pizza Party" "2024-12-25" "18:00" "Join us for food and games!"`
-*   **Managing Events**:
-    *   *List Events*: `!list_events` - Shows all upcoming events with their ID numbers.
-    *   *Delete Event*: `!delete_event <ID>`
-    *   *Example*: `!delete_event 1`
-*   **Persistent Dashboard**: Keeps a pinned message in a channel up-to-date with all upcoming events.
-    *   *Setup*: `!setup_dashboard #channel`
-    *   *Auto-Update*: Updates automatically when events are added, deleted, or expire.
+*   **Interactive Dashboard**: A persistent message that acts as the control center.
+    *   *Setup*: `!setup_dashboard #channel` (or just `!setup_dashboard` in the current channel).
+    *   *Features*:
+        *   **Add Event Button**: Opens a form to input Name, Date, Time, and Description.
+        *   **Delete Event Button**: Opens a dropdown menu to remove an event.
+        *   **Auto-Update**: The dashboard automatically refreshes when events are added or removed.
+*   **Legacy Commands**:
+    *   `!add_event`: Still works for quick additions via text.
+    *   `!delete_event`: Still works for deleting by index.
 *   **Automated Notifications**: Posts announcements when events start.
 
 ---
