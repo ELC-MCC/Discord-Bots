@@ -260,9 +260,17 @@ class RoleBot(discord.Client):
         count_pre = 0
         count_post = 0
         
-        status_msg = await message.reply("🔄 Processing roles... This may take a while.")
+        processed_count = 0
+        status_msg = await message.reply(f"🔄 Processing roles for {len(guild.members)} members... This may take a while.")
 
         for member in guild.members:
+            processed_count += 1
+            if processed_count % 25 == 0:
+                try:
+                    await status_msg.edit(content=f"🔄 Processing... {processed_count}/{len(guild.members)} members checked.")
+                except:
+                    pass
+
             # Check if they have the role to be removed/swapped
             # The user said: "remove a role and give people another role... based on whether or not the account joined prior to may 2024"
             # It implies we only act on people who *have* the role to be removed? 
@@ -293,6 +301,7 @@ class RoleBot(discord.Client):
                     print(f"Error processing {member.name}: {e}")
         
         await status_msg.edit(content=f"✅ **Role Migration Complete**\n"
+                                      f"Checked {len(guild.members)} members.\n"
                                       f"Removed Old Role from: {count_removed} members\n"
                                       f"Assigned Pre-May Role: {count_pre}\n"
                                       f"Assigned Post-May Role: {count_post}")
