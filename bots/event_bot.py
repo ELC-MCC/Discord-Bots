@@ -14,7 +14,6 @@ class EventModal(ui.Modal, title="Add New Event"):
     date_str = ui.TextInput(label="Date (YYYY-MM-DD)", placeholder="2024-12-25", min_length=10, max_length=10)
     time_str = ui.TextInput(label="Time (HH:MM)", placeholder="20:00", min_length=5, max_length=5)
     description = ui.TextInput(label="Description", style=discord.TextStyle.paragraph, placeholder="Watch movies together...", required=False, max_length=1000)
-    image_url = ui.TextInput(label="Image URL", placeholder="https://example.com/image.png", required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
         # Validate Date/Time
@@ -28,21 +27,53 @@ class EventModal(ui.Modal, title="Add New Event"):
             )
             return
 
+        # Ack the modal first to avoid timeout, but we need to send a follow-up for the image
+        await interaction.response.send_message(
+            f"Event details for **{self.name.value}** recorded.\n"
+            "📷 **Please upload an image for the event now.**\n"
+            "*(Reply with an image attachment, or type `skip` to proceed without one)*",
+            ephemeral=True
+        )
+
+        bot: 'EventBot' = interaction.client
+        
+        def check(m):
+            return m.author == interaction.user and m.channel == interaction.channel
+
+        image_url = None
+        try:
+            # Wait for image upload
+            msg = await bot.wait_for('message', check=check, timeout=60.0)
+            
+            if msg.attachments:
+                image_url = msg.attachments[0].url
+                await interaction.followup.send("✅ Image received!", ephemeral=True)
+            elif msg.content.lower().strip() == 'skip':
+                await interaction.followup.send("Skipping image upload.", ephemeral=True)
+            else:
+                await interaction.followup.send("No image found in message. Proceeding without image.", ephemeral=True)
+            
+            # Try to delete the user's message to keep chat clean (if possible)
+            try:
+                await msg.delete()
+            except:
+                pass
+
+        except asyncio.TimeoutError:
+            await interaction.followup.send("Timed out waiting for image. Event created without one.", ephemeral=True)
+
         # Create Event Object
         new_event = {
             "name": self.name.value,
             "time": full_time_str,
             "description": self.description.value,
-            "image_url": self.image_url.value if self.image_url.value else None,
+            "image_url": image_url,
             "created_by": interaction.user.id
         }
 
-        # Access Bot Instance
-        bot: 'EventBot' = interaction.client
         bot.events.append(new_event)
         bot.save_events()
         
-        await interaction.response.send_message(f"Event **{self.name.value}** allocated for {full_time_str}.", ephemeral=True)
         print(f"Event added via Modal: {self.name.value}")
 
 # --- Main Bot Class ---
