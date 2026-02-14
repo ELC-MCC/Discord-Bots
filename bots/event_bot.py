@@ -89,13 +89,11 @@ class DeleteEventSelect(ui.Select):
         sorted_events = sorted(events, key=lambda x: x['time'])
         
         for i, event in enumerate(sorted_events):
-            # Value is index in the original list? No, better use something unique if possible.
-            # But we don't have unique IDs. 
-            # We can pass the index in the SORTED list, but removal effectively relies on object identity or matching fields.
-            # Let's use "time|name" as value to identify it.
-            label = f"{event['time']} - {event['name']}"
-            if len(label) > 100: label = label[:97] + "..."
-            value = f"{event['time']}|{event['name']}"
+            # Value limit is 100 chars
+            # We use time|name as a unique identifier (mostly)
+            full_str = f"{event['time']}|{event['name']}"
+            value = full_str[:100]  # Truncate to ensure it fits
+            
             options.append(discord.SelectOption(label=label, value=value))
             
             if len(options) >= 25: break # Discord limit
@@ -104,10 +102,13 @@ class DeleteEventSelect(ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         selected_value = self.values[0]
+        print(f"User {interaction.user} selected to delete event with key: {selected_value}")
+        
         # Find and remove
         event_to_remove = None
         for event in self.bot.events:
-            if f"{event['time']}|{event['name']}" == selected_value:
+            event_key = f"{event['time']}|{event['name']}"[:100]
+            if event_key == selected_value:
                 event_to_remove = event
                 break
         
@@ -115,8 +116,10 @@ class DeleteEventSelect(ui.Select):
             self.bot.events.remove(event_to_remove)
             self.bot.save_events()
             await interaction.response.send_message(f"✅ Event **{event_to_remove['name']}** deleted.", ephemeral=True)
+            print(f"Deleted event: {event_to_remove['name']}")
         else:
             await interaction.response.send_message("❌ Event not found (maybe already deleted).", ephemeral=True)
+            print(f"Failed to find event with key: {selected_value}")
 
 class DeleteEventView(ui.View):
     def __init__(self, events: List[Dict], bot: 'EventBot'):
