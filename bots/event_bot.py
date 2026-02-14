@@ -146,11 +146,14 @@ class EventBot(discord.Client):
                     return {'events': content}
                 return content
         except json.JSONDecodeError:
-            return {'events': []}
+            return {'events': [], 'upcoming_message_id': None, 'upcoming_channel_id': None}
 
     def save_events(self):
         with open(self.events_file, 'w') as f:
             json.dump(self.data, f, indent=4)
+        # Trigger update when events change
+        if hasattr(self, 'loop'):
+            self.loop.create_task(self.update_upcoming_message())
 
     async def setup_hook(self):
         # No persistent views needed anymore
@@ -172,6 +175,75 @@ class EventBot(discord.Client):
 
         if not self.bg_task:
             self.bg_task = self.loop.create_task(self.check_events())
+            
+    def get_upcoming_embed(self) -> discord.Embed:
+        # Filter for future events
+        now = datetime.now()
+        future_events = []
+        for event in self.events:
+            try:
+                event_time = datetime.strptime(event['time'], "%Y-%m-%d %H:%M")
+                if event_time > now:
+                    future_events.append((event_time, event))
+            except ValueError:
+                continue
+        
+        # Sort by time and take top 3
+        future_events.sort(key=lambda x: x[0])
+        next_events = future_events[:3]
+
+        embed = discord.Embed(
+            title="📅 Upcoming Events Filter",
+            description="Here are the next 3 scheduled events:",
+            color=0x3498DB
+        )
+        
+        if not next_events:
+            embed.description = "No upcoming events scheduled."
+        
+        for dt, event in next_events:
+            location = event.get('location', 'No location')
+            time_display = dt.strftime("%Y-%m-%d at %H:%M")
+            
+            embed.add_field(
+                name=f"{time_display} | {event['name']}",
+                value=f"📍 **{location}**\n{event['description']}",
+                inline=False
+            )
+        
+        embed.set_footer(text="Updates automatically • Use !add_event to schedule more!")
+        embed.timestamp = now
+        return embed
+
+    async def update_upcoming_message(self):
+        msg_id = self.data.get('upcoming_message_id')
+        chan_id = self.data.get('upcoming_channel_id')
+        
+        if not msg_id or not chan_id:
+            return
+
+        try:
+            channel = self.get_channel(chan_id)
+            if not channel:
+                # Try fetching if not in cache
+                try:
+                    channel = await self.fetch_channel(chan_id)
+                except:
+                    return
+
+            try:
+                message = await channel.fetch_message(msg_id)
+                await message.edit(embed=self.get_upcoming_embed())
+            except discord.NotFound:
+                # Message deleted, clear data
+                self.data['upcoming_message_id'] = None
+                self.data['upcoming_channel_id'] = None
+                self.save_events()
+            except Exception as e:
+                print(f"Failed to update upcoming message: {e}")
+                
+        except Exception as e:
+            print(f"Error in update_upcoming_message: {e}")
 
     async def check_events(self):
         await self.wait_until_ready()
@@ -207,6 +279,13 @@ class EventBot(discord.Client):
                     if e in self.events:
                         self.events.remove(e)
                 self.save_events()
+                # Update the upcoming events message since events were removed
+                await self.update_upcoming_message()
+
+            # Periodic update to keeping "Time until" or just refresh the list if an event passed without notification logic triggering yet
+            # Also ensures the "Next 3" rotates if one finished
+            if now.second < 5: # Just do it once a minute roughly
+                 await self.update_upcoming_message()
 
             await asyncio.sleep(60)
 
@@ -325,4 +404,25 @@ class EventBot(discord.Client):
             button.callback = delete_button_callback
             view.add_item(button)
             await message.channel.send("Click to delete an event:", view=view)
+
+        # Command: !setup_upcoming (Admin Only)
+        if message.content.startswith('!setup_upcoming'):
+             if not message.author.guild_permissions.administrator:
+                await message.channel.send("❌ You need Administrator permissions to setup the upcoming events dashboard.")
+                return
+            
+             # Send initial message
+             embed = self.get_upcoming_embed()
+             msg = await message.channel.send(embed=embed)
+             
+             # Store ID
+             self.data['upcoming_message_id'] = msg.id
+             self.data['upcoming_channel_id'] = msg.channel.id
+             self.save_events()
+             
+             # Delete command message to keep it clean
+             try:
+                 await message.delete()
+             except:
+                 pass
 
