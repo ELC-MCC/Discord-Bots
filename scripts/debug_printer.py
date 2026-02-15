@@ -4,6 +4,7 @@ import json
 import urllib.request
 import urllib.error
 import time
+import socket
 
 # Basic .env parser if dotenv is not installed
 def load_env_file():
@@ -71,7 +72,12 @@ def check_printer(index):
         pass
 
     # 2. Common Defaults
-    ports_to_try.extend(["7125", "80", "8080", "443"])
+    # 7125: Moonraker default
+    # 80: Web Interface / HTTP API
+    # 8080: Alternate HTTP
+    # 443: HTTPS
+    # 3030: Elegoo WebSocket (SDCP) check
+    ports_to_try.extend(["7125", "80", "8080", "443", "3030"])
     
     # Remove duplicates preserving order
     unique_ports = []
@@ -88,51 +94,74 @@ def check_printer(index):
         "/api/version"
     ]
 
-    for path in paths_to_probe:
-        url = f"http://{host}{path}"
-        try:
-            print(f"[{index}]   Probing {url} ...", end="", flush=True)
-            req = urllib.request.Request(url)
-            # Add User-Agent just in case
-            req.add_header('User-Agent', 'Mozilla/5.0')
-            
-            with urllib.request.urlopen(req, timeout=2) as response:
-                code = response.getcode()
-                content_type = response.headers.get('Content-Type', '')
-                
-                print(f" Status {code} ({content_type})")
-                
-                body = response.read().decode('utf-8', errors='ignore')
-                
-                if code == 200:
-                    # If JSON, try to parse
-                    if 'json' in content_type:
-                        try:
-                            data = json.loads(body)
-                            print(f"[{index}]     JSON Response keys: {list(data.keys())}")
-                            
-                            # Check for Moonraker-like structure
-                            if 'result' in data and 'status' in data['result']:
-                                print(f"[{index}]     *** FOUND COMPATIBLE API at {url} ***")
-                                status = data['result']['status']
-                                print(f"[{index}]     State: {status.get('print_stats', {}).get('state', 'Unknown')}")
-                                return
-                        except:
-                            pass
-                    # If HTML, get title
-                    elif '<title>' in body:
-                        start = body.find('<title>') + 7
-                        end = body.find('</title>')
-                        title = body[start:end].strip()
-                        print(f"[{index}]     Page Title: {title}")
-                        
-        except urllib.error.HTTPError as e:
-            print(f" Failed ({e.code})")
-        except urllib.error.URLError as e:
-            print(f" Failed ({e.reason})")
-        except Exception as e:
-             print(f" Error ({e})")
+    print(f"[{index}] Checking Host: {host}")
+
+    # Paths to probe on Port 80
+    paths_to_probe = [
+        "/printer/objects/query?print_stats&display_status",
+        "/api/printer",
+        "/moonraker/printer/objects/query?print_stats&display_status",
+        "/", 
+        "/api/version"
+    ]
     
+    # Check Ports (TCP)
+    open_ports = []
+    for port in unique_ports:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1.0)
+            result = sock.connect_ex((host, int(port)))
+            if result == 0:
+                print(f"[{index}]   Port {port} is OPEN")
+                open_ports.append(port)
+            else:
+                print(f"[{index}]   Port {port} is CLOSED")
+            sock.close()
+        except Exception:
+            print(f"[{index}]   Port {port} check error")
+
+    # Probe HTTP on Open Ports
+    for port in open_ports:
+        scheme = "https" if port == "443" else "http"
+        base_url = f"{scheme}://{host}:{port}"
+        
+        # If port 80, try specific paths
+        current_paths = paths_to_probe if port == "80" else ["/printer/objects/query?print_stats&display_status", "/"]
+
+        for path in current_paths:
+            url = f"{base_url}{path}"
+            # ... (rest of HTTP probing logic)
+            try:
+                print(f"[{index}]   Probing {url} ...", end="", flush=True)
+                req = urllib.request.Request(url)
+                req.add_header('User-Agent', 'Mozilla/5.0')
+                
+                with urllib.request.urlopen(req, timeout=2) as response:
+                    code = response.getcode()
+                    content_type = response.headers.get('Content-Type', '')
+                    print(f" Status {code} ({content_type})")
+                    
+                    body = response.read().decode('utf-8', errors='ignore')
+                    
+                    if code == 200:
+                        if 'json' in content_type:
+                            try:
+                                data = json.loads(body)
+                                if 'result' in data and 'status' in data['result']:
+                                    print(f"[{index}]     *** FOUND COMPATIBLE API at {url} ***")
+                                    return
+                            except: pass
+                        elif '<title>' in body:
+                            start = body.find('<title>') + 7
+                            end = body.find('</title>')
+                            print(f"[{index}]     Page Title: {body[start:end].strip()}")
+
+            except urllib.error.HTTPError as e:
+                print(f" Failed ({e.code})")
+            except Exception as e:
+                print(f" Failed (Error)")
+
     print(f"[{index}] Could not find Moonraker API.")
 
 def main():
