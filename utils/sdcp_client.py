@@ -15,19 +15,17 @@ class SDCPClient:
         self.mainboard_id = None
         self.ws_url = f"ws://{host}:{port}/websocket"
         self.status = {}
-        self.attributes = {}
         
     async def discover_mainboard_id(self):
         """
-        Sends a specific UDP unicast packet to the host to get the MainboardID.
+        Sends a UDP unicast packet to the host to get the MainboardID.
         """
         try:
-            # Run blocking socket IO in a thread executor to avoid blocking the event loop
             loop = asyncio.get_running_loop()
             
             def _udp_query():
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.settimeout(2.0)
+                sock.settimeout(3.0) 
                 try:
                     message = b"M99999"
                     target = (self.host, 3000)
@@ -46,10 +44,9 @@ class SDCPClient:
                 text = data.decode('utf-8', errors='ignore')
                 if text.strip().startswith('{'):
                     j = json.loads(text)
-                    # Check multiple locations for MainboardID
                     self.mainboard_id = j.get('Data', {}).get('MainboardID') or j.get('MainboardID')
                     if self.mainboard_id:
-                        logger.info(f"Discovered MainboardID: {self.mainboard_id}")
+                        logger.info(f"Discovered MainboardID for {self.host}: {self.mainboard_id}")
                         return self.mainboard_id
 
         except Exception as e:
@@ -71,8 +68,7 @@ class SDCPClient:
         result = {}
 
         try:
-            # Use a slightly longer timeout for the connection phase
-            timeout = aiohttp.ClientTimeout(total=5)
+            timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
                 async with session.ws_connect(self.ws_url) as ws:
                     
@@ -80,7 +76,6 @@ class SDCPClient:
                     ts = int(time.time())
                     topic = f"sdcp/request/{self.mainboard_id}"
                     
-                    # Exact format needed by Elegoo SDCP v3.0
                     payload = {
                         "Id": uuid_str,
                         "Data": {
@@ -96,41 +91,34 @@ class SDCPClient:
                     
                     await ws.send_json(payload)
                     
-                    # Wait for up to 3 seconds for a response
                     start_time = time.time()
-                    while time.time() - start_time < 3.0:
+                    while time.time() - start_time < 5.0:
                         try:
-                            # Add a small timeout to receive() so we don't block forever if server is silent
                             msg = await ws.receive(timeout=1.0)
                             
                             if msg.type == aiohttp.WSMsgType.TEXT:
                                 data = json.loads(msg.data)
                                 
-                                # Check for Status in various places
-                                # 1. Status Topic
                                 if 'Status' in data and 'PrintInfo' in data['Status']:
                                     status_data = data['Status']
                                     print_info = status_data.get('PrintInfo', {})
                                     
-                                    # Parse State
-                                    # Status: 0=Idle, 1=Printing (from docs/observations)
                                     status_code = print_info.get('Status', 0)
                                     state = "idle"
                                     if status_code == 1:
                                         state = "printing"
-                                    elif status_code == 2: # Paused?
+                                    elif status_code == 2:
                                         state = "paused"
                                         
                                     result = {
                                         'filename': print_info.get('Filename', ''),
-                                        'print_duration': print_info.get('CurrentTicks', 0), # Seconds?
+                                        'print_duration': print_info.get('CurrentTicks', 0),
                                         'total_duration': print_info.get('TotalTicks', 0),
                                         'state': state,
                                         'progress': 0,
                                         'meta': status_data
                                     }
                                     
-                                    # Calc Progress
                                     if result['total_duration'] > 0:
                                         result['progress'] = result['print_duration'] / result['total_duration']
                                     elif print_info.get('TotalLayer', 0) > 0:
@@ -141,9 +129,9 @@ class SDCPClient:
                             elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                                 break
                         except asyncio.TimeoutError:
-                            continue # Loop to check total time
+                            continue
                             
         except Exception as e:
-            logger.error(f"SDCP WebSocket error: {e}")
+            logger.error(f"SDCP WebSocket error {self.host}: {e}")
             
         return result
