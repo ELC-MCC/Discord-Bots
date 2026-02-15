@@ -116,7 +116,8 @@ class SDCPClient:
                                         4: "Transferring",
                                         9: "Complete", # Observed "Print Complete"
                                         13: "Printing",  # Observed during active print
-                                        16: "Starting" # Observed "Heating/Stabilizing"
+                                        16: "Starting", # Observed "Heating/Stabilizing"
+                                        20: "Auto-Leveling" # Observed "Automatic Leveling"
                                     }
                                     
                                     state = STATUS_MAP.get(status_code, f"Status {status_code}")
