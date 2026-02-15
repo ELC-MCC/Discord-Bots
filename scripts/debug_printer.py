@@ -1,54 +1,85 @@
-import asyncio
-import aiohttp
 import os
 import sys
+import json
+import urllib.request
+import urllib.error
+import time
 
-# Load .env manually if python-dotenv is not installed/working
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    print("python-dotenv not installed, ensuring env vars are set manually")
+# Basic .env parser if dotenv is not installed
+def load_env_file():
+    env_vars = {}
+    if os.path.exists('.env'):
+        try:
+            with open('.env', 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'): continue
+                    if '=' in line:
+                        k, v = line.split('=', 1)
+                        env_vars[k.strip()] = v.strip().strip("'").strip('"')
+        except Exception as e:
+            print(f"Failed to read .env: {e}")
+    # Update environment
+    for k, v in env_vars.items():
+        if k not in os.environ:
+            os.environ[k] = v
 
-async def check_printer(index):
+load_env_file()
+
+def check_printer(index):
     url_env = f"PRINTER_{index}_URL"
     base_url = os.getenv(url_env)
     
     if not base_url:
-        print(f"[{index}] No {url_env} found in local environment (check .env).")
+        print(f"[{index}] No {url_env} found in environment (.env).")
         return
 
     print(f"[{index}] Checking {base_url}...")
     
-    try:
-        async with aiohttp.ClientSession() as session:
-            # Try simple status query first
-            api_url = f"{base_url}/printer/objects/query?print_stats&display_status"
-            async with session.get(api_url, timeout=5) as response:
-                print(f"[{index}] Status Code: {response.status}")
-                if response.status == 200:
-                    data = await response.json()
-                    status = data.get('result', {}).get('status', {})
-                    print_stats = status.get('print_stats', {})
-                    state = print_stats.get('state', 'Unknown')
-                    filename = print_stats.get('filename', 'None')
-                    print(f"[{index}] Connection SUCCESS")
-                    print(f"[{index}] State: {state}")
-                    print(f"[{index}] Filename: {filename}")
-                else:
-                    print(f"[{index}] Connection ERROR: {await response.text()}")
-    except Exception as e:
-        print(f"[{index}] FAILED to connect: {e}")
-
-async def main():
-    print("--- Printer API Debug Tool ---")
-    print("Ensure you have set PRINTER_x_URL in your .env file.")
+    # Klipper/Moonraker API
+    api_url = f"{base_url}/printer/objects/query?print_stats&display_status"
     
-    tasks = [check_printer(i) for i in range(1, 4)]
-    await asyncio.gather(*tasks)
+    try:
+        # 5 second timeout
+        with urllib.request.urlopen(api_url, timeout=5) as response:
+            code = response.getcode()
+            
+            if code == 200:
+                body = response.read().decode('utf-8')
+                data = json.loads(body)
+                
+                status = data.get('result', {}).get('status', {})
+                print_stats = status.get('print_stats', {})
+                
+                state = print_stats.get('state', 'Unknown')
+                filename = print_stats.get('filename', 'None')
+                progress = status.get('display_status', {}).get('progress', 0)
+                
+                print(f"[{index}] Connection SUCCESS")
+                print(f"[{index}] State: {state}")
+                print(f"[{index}] Progress: {progress*100:.1f}%")
+                print(f"[{index}] Filename: {filename}")
+            else:
+                print(f"[{index}] Connection ERROR: Status {code}")
+                
+    except urllib.error.URLError as e:
+        print(f"[{index}] FAILED to connect: {e}")
+    except Exception as e:
+        print(f"[{index}] ERROR: {e}")
+
+def main():
+    print("--- Printer API Debug Tool (No Dependencies) ---")
+    print(f"Python Version: {sys.version.split()[0]}")
+    print(f"CWD: {os.getcwd()}")
+    
+    # Check if .env was loaded successfully by checking a known var or PRINTER_1_URL
+    if not os.getenv('PRINTER_1_URL') and not os.getenv('STREAM_1_URL'):
+         print("WARNING: Could not find PRINTER_1_URL or STREAM_1_URL in environment.")
+         print("Make sure you are running this from the root directory where .env is located.")
+    
+    for i in range(1, 4):
+        check_printer(i)
     print("--- Done ---")
 
 if __name__ == "__main__":
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(main())
+    main()
