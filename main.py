@@ -8,8 +8,21 @@ from bots.event_bot import EventBot
 from bots.stream_bot import StreamBot
 import bot_config
 
+import logging
+
 # Load environment variables
 load_dotenv()
+
+# Configure Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Set specific components to DEBUG to help with printer issues
+logging.getLogger("StreamBot").setLevel(logging.DEBUG)
+logging.getLogger("SDCPClient").setLevel(logging.DEBUG)
 
 async def run_bots():
     # Setup Intents
