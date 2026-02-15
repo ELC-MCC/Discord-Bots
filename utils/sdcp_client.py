@@ -153,6 +153,12 @@ class SDCPClient:
                                         raw_prog = print_info.get('Progress', 0)
                                         if raw_prog > 0:
                                             result['progress'] = raw_prog / 100.0
+                                    
+                                    # Force 100% if Complete
+                                    if state == "Complete":
+                                        result['progress'] = 1.0
+                                        if result['total_duration'] > 0:
+                                            result['print_duration'] = result['total_duration']
                                         
                                     return result
                                     
