@@ -228,11 +228,17 @@ class StreamBot(discord.Client):
                                 # Bed: Curr / Target
                                 t_str = []
                                 if temps.get('bed'):
-                                    t_str.append(f"Bed: {temps['bed'][0]}°C / {temps['bed'][1]}°C")
+                                    b_curr, b_target = temps['bed']
+                                    t_str.append(f"Bed: {float(b_curr):.1f}°C / {float(b_target):.1f}°C")
                                 if temps.get('nozzle'):
-                                    t_str.append(f"Noz: {temps['nozzle'][0]}°C / {temps['nozzle'][1]}°C")
+                                    n_curr, n_target = temps['nozzle']
+                                    t_str.append(f"Noz: {float(n_curr):.1f}°C / {float(n_target):.1f}°C")
                                 if temps.get('chamber'):
-                                    t_str.append(f"Chamber: {temps['chamber']}°C")
+                                    c_curr = temps['chamber']
+                                    try:
+                                        t_str.append(f"Chamber: {float(c_curr):.1f}°C")
+                                    except (ValueError, TypeError):
+                                        pass
                                 
                                 if t_str:
                                     description += f"**Temps:** {' | '.join(t_str)}\n"
