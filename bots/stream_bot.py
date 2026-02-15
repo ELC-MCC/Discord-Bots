@@ -67,6 +67,8 @@ class StreamBot(discord.Client):
             async with session.get(url, timeout=timeout) as response:
                 if response.status != 200:
                     logger.error(f"Failed to connect to stream {url}: {response.status}")
+                    yield None
+                    await asyncio.sleep(5)
                     return
 
                 async for chunk in response.content.iter_chunked(4096):
@@ -90,13 +92,26 @@ class StreamBot(discord.Client):
                              
         except (asyncio.TimeoutError, aiohttp.ClientError) as e:
             logger.error(f"Stream connection/read error {url}: {e}")
+            yield None
             await asyncio.sleep(5)
         except Exception as e:
             logger.error(f"Unexpected stream error {url}: {e}")
+            yield None
             await asyncio.sleep(5)
 
     async def stream_loop(self, channel, url, title, index):
         message = None
+        last_status = "CONNECTING" 
+        
+        # Initial Embed
+        embed = discord.Embed(title=title, color=0xF1C40F) # Yellow for connecting
+        embed.set_footer(text=f"Status: CONNECTING • ID: {index}")
+        
+        try:
+             message = await channel.send(embed=embed)
+        except Exception as e:
+             logger.error(f"Failed to send initial message for {title}: {e}")
+
         async with aiohttp.ClientSession() as session:
             backoff = 1
             last_update = 0
@@ -106,22 +121,34 @@ class StreamBot(discord.Client):
                     async for jpg_data in self.get_frame(session, url):
                         now = asyncio.get_running_loop().time()
                         
-                        if message is None or (now - last_update >= self.update_interval):
-                            file = discord.File(BytesIO(jpg_data), filename="stream.jpg")
+                        # Determine current status and color
+                        if jpg_data is None:
+                            current_status = "OFFLINE"
+                            color = 0xE74C3C # Red
+                        else:
+                            current_status = "LIVE"
+                            color = 0x2ECC71 # Green
+
+                        # Force update if status changed or time interval passed
+                        if (now - last_update >= self.update_interval) or (current_status != last_status):
+                            
+                            embed.color = color
+                            embed.set_footer(text=f"Status: {current_status} • ID: {index}")
                             
                             try:
-                                if message:
-                                    # Optimization: Only update the attachment.
-                                    # The existing embed points to "attachment://stream.jpg", so replacing 
-                                    # the file with the same name should update the image without re-rendering the whole embed.
-                                    await message.edit(attachments=[file])
-                                else:
-                                    # First time: Send Embed + File
-                                    embed = discord.Embed(title=title, color=0xFF0000)
+                                if not message:
+                                    message = await channel.send(embed=embed)
+
+                                if jpg_data:
+                                    file = discord.File(BytesIO(jpg_data), filename="stream.jpg")
                                     embed.set_image(url="attachment://stream.jpg")
-                                    embed.set_footer(text=f"Live Feed • ID: {index}")
-                                    message = await channel.send(embed=embed, file=file)
+                                    await message.edit(embed=embed, attachments=[file])
+                                else:
+                                    # Offline - No image
+                                    embed.set_image(url=None)
+                                    await message.edit(embed=embed, attachments=[])
                                 
+                                last_status = current_status
                                 last_update = now
                                 backoff = 1
                                 
