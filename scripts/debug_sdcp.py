@@ -6,6 +6,7 @@ import base64
 import hashlib
 import time
 import json
+import urllib.request
 import urllib.parse
 
 # --- Minimal WebSocket Implementation ---
@@ -149,7 +150,10 @@ def check_udp_discovery(index, specific_host=None):
                 if text.strip().startswith('{'):
                     try:
                         j = json.loads(text)
+                        # Check multiple locations for MainboardID
+                        # It might be in Data.MainboardID or just MainboardID
                         mb_id = j.get('Data', {}).get('MainboardID') or j.get('MainboardID')
+                        
                         if mb_id:
                             print(f"[{index}] *** FOUND MainboardID via UDP: {mb_id} ***")
                             found_id = mb_id
@@ -192,44 +196,7 @@ def check_http_id(index, host):
         print(f"[{index}] HTTP Scrape failed: {e}")
     return None
 
-if __name__ == "__main__":
-    load_env_file()
-    print("--- SDCP Debug Tool (Zero Dependency) ---")
-    
-    # We need to do this PER printer now, since unicast is better
-    
-    for i in range(1, 4):
-        url_env = f"PRINTER_{i}_URL"
-        base_url = os.getenv(url_env)
-        host = None
-        if base_url:
-            try:
-                if "://" in base_url:
-                    host = base_url.split("://")[1].split("/")[0].split(":")[0]
-                else:
-                    host = base_url.split(":")[0]
-            except: pass
-        
-        mb_id = None
-        
-        # 1. Try Unicast UDP to this host
-        if host:
-            mb_id = check_udp_discovery(i, specific_host=host)
-            
-        # 2. Try Broadcast UDP if missed (only once ideally, but ok to repeat)
-        if not mb_id:
-             mb_id = check_udp_discovery(i, specific_host=None)
-             
-        # 3. Try HTTP Scrape
-        if not mb_id and host:
-            mb_id = check_http_id(i, host)
-            
-        if mb_id:
-            print(f"[{i}] Using ID: {mb_id}")
-        else:
-            print(f"[{i}] No ID found. WebSocket might fail.")
-
-        check_sdcp(i, mb_id)
+def check_sdcp(index, mainboard_id=None):
     url_env = f"PRINTER_{index}_URL"
     base_url = os.getenv(url_env)
     
@@ -237,6 +204,7 @@ if __name__ == "__main__":
         print(f"[{index}] No {url_env} found.")
         return
 
+    # Extract Host
     host = "unknown"
     try:
         if "://" in base_url:
@@ -294,19 +262,30 @@ if __name__ == "__main__":
         for cmd in cmds_to_try:
             print(f"[{index}] >> {cmd}")
             ws_send_text(sock, cmd)
-            time.sleep(1.0)
+            time.sleep(1.0) # Wait a bit between commands
         
+        # Listen for a few seconds
         print(f"[{index}] Listening for 10 seconds...")
         start_time = time.time()
         while time.time() - start_time < 10:
             try:
                 opcode, data = ws_recv_frame(sock)
-                if opcode == 0x8:
+                if opcode == 0x8: # Close
                     print(f"[{index}] Server sent Close frame")
                     break
-                if opcode == 0x1:
+                if opcode == 0x1: # Text
                     text = data.decode('utf-8')
-                    print(f"[{index}] RECV: {text[:200]}...") # Truncate for sanity
+                    # Pretty print JSON if possible
+                    try:
+                        j = json.loads(text)
+                        
+                        # Check for Status
+                        if 'Data' in j and 'Status' in j['Data']:
+                             pass # Found it!
+                        
+                        print(f"[{index}] RECV JSON: {json.dumps(j, indent=2)}")
+                    except:
+                        print(f"[{index}] RECV Text: {text}")
             except socket.timeout:
                 pass
             except Exception as e:
@@ -321,12 +300,35 @@ if __name__ == "__main__":
     load_env_file()
     print("--- SDCP Debug Tool (Zero Dependency) ---")
     
-    mb_id = check_udp_discovery(0)
-    
-    if mb_id:
-        print(f"Using MainboardID: {mb_id} for tests.")
-    else:
-        print("No MainboardID found via UDP. Will try generic requests.")
-
     for i in range(1, 4):
+        url_env = f"PRINTER_{i}_URL"
+        base_url = os.getenv(url_env)
+        host = None
+        if base_url:
+            try:
+                if "://" in base_url:
+                    host = base_url.split("://")[1].split("/")[0].split(":")[0]
+                else:
+                    host = base_url.split(":")[0]
+            except: pass
+        
+        mb_id = None
+        
+        # 1. Try Unicast UDP to this host
+        if host:
+            mb_id = check_udp_discovery(i, specific_host=host)
+            
+        # 2. Try Broadcast UDP if missed (only once ideally, but ok to repeat)
+        if not mb_id:
+             mb_id = check_udp_discovery(i, specific_host=None)
+             
+        # 3. Try HTTP Scrape
+        if not mb_id and host:
+            mb_id = check_http_id(i, host)
+            
+        if mb_id:
+            print(f"[{i}] Using ID: {mb_id}")
+        else:
+            print(f"[{i}] No ID found. WebSocket might fail.")
+
         check_sdcp(i, mb_id)
