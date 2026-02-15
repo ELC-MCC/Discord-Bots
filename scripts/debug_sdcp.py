@@ -231,31 +231,40 @@ def check_sdcp(index, mainboard_id=None):
         if mainboard_id:
             topic_status = f"sdcp/request/{mainboard_id}/status" # Guessing topic format
         
-        # Commands to try based on V3.0.0
+        # Commands to try based on V3.0.0 and Community findings
         cmds_to_try = []
         
-        # 1. Connect / Handshake (Common in older protocols, maybe here too?)
         if mainboard_id:
             # Topic: sdcp/request/{MainboardID}
             topic = f"sdcp/request/{mainboard_id}"
             
-            # Try 1: Cmd 0 (Status/Info)
+            # 1. Login/Connect (Cmd 1 or 256?)
+            # Some sources say no login needed for local, but maybe "Connect" needed?
+            
+            # Try 1: Cmd 1 (Status?)
             cmds_to_try.append(json.dumps({
                 "Id": f"{int(time.time()*1000)}", 
-                "Topic": topic,
-                "Data": {"Cmd": 0, "MainboardID": mainboard_id, "From": "Client"} 
-            }))
-            
-            # Try 2: Cmd 1 (Status?)
-            cmds_to_try.append(json.dumps({
-                "Id": f"{int(time.time()*1000)+1}", 
                 "Topic": topic,
                 "Data": {"Cmd": 1, "MainboardID": mainboard_id, "From": "Client"} 
             }))
 
-             # Try 3: "GetStatus" string
+            # Try 2: Cmd 0 (Info?)
             cmds_to_try.append(json.dumps({
-                "Id": f"{int(time.time()*1000)+2}", 
+                 "Id": f"{int(time.time()*1000)+1}",
+                 "Topic": topic,
+                 "Data": {"Cmd": 0, "MainboardID": mainboard_id, "From": "Client"}
+            }))
+
+            # Try 3: Cmd 128 (GetStatus - observed in some logs)
+            cmds_to_try.append(json.dumps({
+                 "Id": f"{int(time.time()*1000)+2}",
+                 "Topic": topic,
+                 "Data": {"Cmd": 128, "MainboardID": mainboard_id, "From": "Client"}
+            }))
+             
+             # Try 4: String "GetStatus"
+            cmds_to_try.append(json.dumps({
+                "Id": f"{int(time.time()*1000)+3}", 
                 "Topic": topic,
                 "Data": {"Cmd": "GetStatus", "MainboardID": mainboard_id, "From": "Client"} 
             }))
