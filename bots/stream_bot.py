@@ -112,7 +112,12 @@ class StreamBot(discord.Client):
         except Exception as e:
              logger.error(f"Failed to send initial message for {title}: {e}")
 
-        async with aiohttp.ClientSession() as session:
+        # Mimic a browser to ensure the stream server wakes up
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+
+        async with aiohttp.ClientSession(headers=headers) as session:
             backoff = 1
             last_update = 0
             
