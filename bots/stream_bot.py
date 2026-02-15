@@ -15,9 +15,14 @@ class StreamBot(discord.Client):
         self.stream_tasks = []
         self.channel_id = None
         self.update_interval = 3.0 # Seconds
+        self.has_started = False
 
     async def on_ready(self):
         logger.info(f"StreamBot logged in as {self.user}")
+        
+        if self.has_started:
+            logger.info("StreamBot already started, skipping initialization.")
+            return
         
         try:
             self.channel_id = int(os.getenv('STREAM_CHANNEL_ID', '0'))
@@ -37,6 +42,7 @@ class StreamBot(discord.Client):
 
         # Start streams
         await self.start_streams()
+        self.has_started = True
 
     async def start_streams(self):
         # Cancel existing tasks if any
@@ -107,10 +113,22 @@ class StreamBot(discord.Client):
         embed = discord.Embed(title=title, color=0xF1C40F) # Yellow for connecting
         embed.set_footer(text=f"Status: CONNECTING • ID: {index}")
         
+        # Try to find existing message
         try:
-             message = await channel.send(embed=embed)
+            async for history_msg in channel.history(limit=20):
+                if history_msg.author == self.user and history_msg.embeds:
+                    # Check footer to match Stream ID
+                    footer_text = history_msg.embeds[0].footer.text
+                    if footer_text and f"ID: {index}" in footer_text:
+                        message = history_msg
+                        # Update it to Connecting state
+                        await message.edit(embed=embed)
+                        break
+                        
+            if not message:
+                 message = await channel.send(embed=embed)
         except Exception as e:
-             logger.error(f"Failed to send initial message for {title}: {e}")
+             logger.error(f"Failed to find/send initial message for {title}: {e}")
 
         # Mimic a browser to ensure the stream server wakes up
         headers = {
