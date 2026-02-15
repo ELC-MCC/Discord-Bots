@@ -161,34 +161,42 @@ def check_sdcp(index):
         
         # Try a few variations if we aren't sure
         cmds_to_try = [
-            # Variation 1: Standard SDCP v3?
+            # 1. Standard GetStatus
             json.dumps({
-                "Id": "1", 
+                "Id": f"{int(time.time()*1000)}", 
                 "Topic": "sdcp/request/status",
                 "Data": {"Cmd": "GetStatus"} 
             }),
-            # Variation 2: Integer Cmd
+            # 2. GetAttributes (often used for initial state)
+            json.dumps({
+                "Id": f"{int(time.time()*1000)+1}",
+                "Topic": "sdcp/request/attributes",
+                "Data": {"Cmd": "GetAttributes"}
+            }),
+             # 3. Simple Cmd: 0
              json.dumps({
-                "Id": "2", 
+                "Id": f"{int(time.time()*1000)+2}", 
                 "Topic": "sdcp/request/status",
                 "Data": {"Cmd": 0} 
             }),
-             # Variation 3: Just check attributes
+            # 4. Empty Data
             json.dumps({
-                "Id": "3",
-                "Topic": "sdcp/request/attributes",
-                "Data": {"Cmd": "GetAttributes"}
+                "Id": f"{int(time.time()*1000)+3}",
+                "Topic": "sdcp/request/status",
+                "Data": {}
             })
         ]
 
+        print(f"[{index}] Sending {len(cmds_to_try)} command variations...")
         for cmd in cmds_to_try:
-            print(f"[{index}] Sending: {cmd}")
+            print(f"[{index}] >> {cmd}")
             ws_send_text(sock, cmd)
-            time.sleep(0.5)
+            time.sleep(1.0) # Wait a bit between commands
         
         # Listen for a few seconds
+        print(f"[{index}] Listening for 10 seconds...")
         start_time = time.time()
-        while time.time() - start_time < 5:
+        while time.time() - start_time < 10:
             try:
                 opcode, data = ws_recv_frame(sock)
                 if opcode == 0x8: # Close
