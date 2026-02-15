@@ -144,6 +144,12 @@ class SDCPClient:
                                         'meta': status_data
                                     }
                                     
+                                    # Clear stats if Idle to prevent stale data
+                                    if state == "Idle":
+                                        result['progress'] = 0
+                                        result['print_duration'] = 0
+                                        result['total_duration'] = 0
+                                    
                                     if result['total_duration'] > 0:
                                         result['progress'] = result['print_duration'] / result['total_duration']
                                     elif print_info.get('TotalLayer', 0) > 0:
