@@ -228,8 +228,41 @@ def check_sdcp(index):
     except Exception as e:
         print(f"[{index}] Failed: {e}")
 
+def check_udp_discovery(index):
+    # SDCP Discovery often uses UDP broadcasts on port 3000 or 3001
+    print(f"[{index}] Checking UDP Discovery on port 3000...")
+    
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(5)
+    try:
+        # Bind to all interfaces to catch broadcasts
+        sock.bind(('', 3000)) 
+        
+        print(f"[{index}] Listening for UDP broadcasts on port 3000 (5s)...")
+        start_time = time.time()
+        while time.time() - start_time < 5:
+            try:
+                data, addr = sock.recvfrom(4096)
+                print(f"[{index}] UDP from {addr}: {data.decode('utf-8', errors='ignore')}")
+            except socket.timeout:
+                pass
+            except Exception as e:
+                print(f"[{index}] UDP Error: {e}")
+                break
+    except Exception as e:
+        print(f"[{index}] UDP Bind Error (Port 3000 might be in use or restricted): {e}")
+    finally:
+        sock.close()
+
 if __name__ == "__main__":
     load_env_file()
     print("--- SDCP Debug Tool (Zero Dependency) ---")
+    
+    # Try UDP check first as it's passive/discovery
+    # Note: Binding to port 3000 might conflict if multiple instances run or if another app uses it.
+    # But for a quick debug script it's worth a shot.
+    # We only run it once, not per printer index, really.
+    check_udp_discovery(0)
+    
     for i in range(1, 4):
         check_sdcp(i)
