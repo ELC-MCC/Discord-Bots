@@ -229,28 +229,41 @@ def check_sdcp(index):
         print(f"[{index}] Failed: {e}")
 
 def check_udp_discovery(index):
-    # SDCP Discovery often uses UDP broadcasts on port 3000 or 3001
-    print(f"[{index}] Checking UDP Discovery on port 3000...")
+    # SDCP Discovery: Send "M99999" to port 3000
+    print(f"[{index}] Sending UDP Broadcast 'M99999' to port 3000...")
     
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.settimeout(5)
+    
     try:
-        # Bind to all interfaces to catch broadcasts
-        sock.bind(('', 3000)) 
+        # Send Broadcast
+        message = b"M99999"
+        sock.sendto(message, ('<broadcast>', 3000))
         
-        print(f"[{index}] Listening for UDP broadcasts on port 3000 (5s)...")
+        print(f"[{index}] Listening for UDP response on port 3000 (5s)...")
         start_time = time.time()
         while time.time() - start_time < 5:
             try:
                 data, addr = sock.recvfrom(4096)
-                print(f"[{index}] UDP from {addr}: {data.decode('utf-8', errors='ignore')}")
+                text = data.decode('utf-8', errors='ignore')
+                print(f"[{index}] UDP from {addr}: {text}")
+                
+                # Try to parse JSON if it looks like it
+                if text.strip().startswith('{'):
+                    try:
+                        j = json.loads(text)
+                        print(f"[{index}] UDP JSON Keys: {list(j.keys())}")
+                        if 'Data' in j and 'Status' in j['Data']:
+                            print(f"[{index}] *** FOUND STATUS VIA UDP! ***")
+                    except: pass
             except socket.timeout:
                 pass
             except Exception as e:
-                print(f"[{index}] UDP Error: {e}")
+                print(f"[{index}] UDP Recv Error: {e}")
                 break
     except Exception as e:
-        print(f"[{index}] UDP Bind Error (Port 3000 might be in use or restricted): {e}")
+        print(f"[{index}] UDP Send Error: {e}")
     finally:
         sock.close()
 
