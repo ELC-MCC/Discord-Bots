@@ -118,40 +118,42 @@ def load_env_file():
             except: pass
     print("Warning: .env not found")
 
-def check_udp_discovery(index):
+def check_udp_discovery(index, specific_host=None):
     # SDCP Discovery: Send "M99999" to port 3000
-    print(f"[{index}] Sending UDP Broadcast 'M99999' to port 3000...")
+    target_desc = f"host {specific_host}" if specific_host else "BROADCAST"
+    print(f"[{index}] Sending UDP 'M99999' to {target_desc} on port 3000...")
     
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    sock.settimeout(5)
+    if not specific_host:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        target_addr = ('<broadcast>', 3000)
+    else:
+        target_addr = (specific_host, 3000)
+        
+    sock.settimeout(2) # Shorter timeout for unicast checks
     
     found_id = None
     
     try:
-        # Send Broadcast
+        # Send Message
         message = b"M99999"
-        sock.sendto(message, ('<broadcast>', 3000))
+        sock.sendto(message, target_addr)
         
-        print(f"[{index}] Listening for UDP response on port 3000 (5s)...")
         start_time = time.time()
-        while time.time() - start_time < 5:
+        while time.time() - start_time < 2:
             try:
                 data, addr = sock.recvfrom(4096)
                 text = data.decode('utf-8', errors='ignore')
-                print(f"[{index}] UDP from {addr}: {text}")
+                # If checking specific host, ignore others? Nah, any info is good.
                 
                 if text.strip().startswith('{'):
                     try:
                         j = json.loads(text)
-                        # Check multiple locations for MainboardID
-                        # It might be in Data.MainboardID or just MainboardID
                         mb_id = j.get('Data', {}).get('MainboardID') or j.get('MainboardID')
-                        
                         if mb_id:
-                            print(f"[{index}] *** FOUND MainboardID: {mb_id} ***")
+                            print(f"[{index}] *** FOUND MainboardID via UDP: {mb_id} ***")
                             found_id = mb_id
-                            return found_id # Return immediately if found
+                            return found_id
                     except: pass
             except socket.timeout:
                 pass
@@ -164,42 +166,70 @@ def check_udp_discovery(index):
         sock.close()
     return found_id
 
+def check_http_id(index, host):
+    # Try to find ID in javascript variables on the web page
+    print(f"[{index}] Scraping HTTP {host} for MainboardID...")
+    try:
+        url = f"http://{host}/"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=3) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+            # Look for common patterns
+            # e.g. "MainboardID":"..."
+            if 'MainboardID' in html:
+                # Poor man's regex/parsing
+                parts = html.split('MainboardID')
+                if len(parts) > 1:
+                    # Look at the part after
+                    snippet = parts[1][:50]
+                    # usually ":"ID" or similar
+                    clean = snippet.replace('"', '').replace("'", '').replace(':', '').replace('=', '').strip()
+                    # take first alphanumeric chunk
+                    candidate = clean.split()[0].split(',')[0].split('}')[0]
+                    print(f"[{index}] *** FOUND MainboardID via HTTP Scrape: {candidate} ***")
+                    return candidate
+    except Exception as e:
+        print(f"[{index}] HTTP Scrape failed: {e}")
+    return None
+
 if __name__ == "__main__":
     load_env_file()
     print("--- SDCP Debug Tool (Zero Dependency) ---")
     
-    # Try discovery to get Mainboard ID
-    # We'll valid try to use the first one found for all, 
-    # OR ideally we match IP. But for now let's just get ANY ID.
-    global_mainboard_id = check_udp_discovery(0)
+    # We need to do this PER printer now, since unicast is better
     
-    if global_mainboard_id:
-        print(f"Using MainboardID: {global_mainboard_id} for tests.")
-    else:
-        print("No MainboardID found via UDP. Will try generic requests (might fail).")
-
     for i in range(1, 4):
-        # Pass mainboard ID if we have it? 
-        # For now, let's update check_sdcp to take an optional ID
-        # We need to hack the loop above to pass it.
-        # But check_sdcp signature is fixed. 
-        # Let's just use the global variable or modify check_sdcp in-place.
-        pass 
+        url_env = f"PRINTER_{i}_URL"
+        base_url = os.getenv(url_env)
+        host = None
+        if base_url:
+            try:
+                if "://" in base_url:
+                    host = base_url.split("://")[1].split("/")[0].split(":")[0]
+                else:
+                    host = base_url.split(":")[0]
+            except: pass
         
-    # Re-define check_sdcp call or cleaner approach:
-    # Actually, let's just modify the loop below to pass it if I modify the function signature.
-    # But I can't easily change the signature in this patch verify easily without rewriting check_sdcp header.
-    # So I will use a global or re-read it.
-    
-    # Wait, I can just modify the loop implementation in `if __name__` block.
-    # But check_sdcp needs to be updated to USE it.
-    
-    pass
+        mb_id = None
+        
+        # 1. Try Unicast UDP to this host
+        if host:
+            mb_id = check_udp_discovery(i, specific_host=host)
+            
+        # 2. Try Broadcast UDP if missed (only once ideally, but ok to repeat)
+        if not mb_id:
+             mb_id = check_udp_discovery(i, specific_host=None)
+             
+        # 3. Try HTTP Scrape
+        if not mb_id and host:
+            mb_id = check_http_id(i, host)
+            
+        if mb_id:
+            print(f"[{i}] Using ID: {mb_id}")
+        else:
+            print(f"[{i}] No ID found. WebSocket might fail.")
 
-# Redefine check_sdcp to include mainboard_id logic
-# (To save tool calls, I'm bundling the function re-definition and the main block update here)
-
-def check_sdcp(index, mainboard_id=None):
+        check_sdcp(i, mb_id)
     url_env = f"PRINTER_{index}_URL"
     base_url = os.getenv(url_env)
     
