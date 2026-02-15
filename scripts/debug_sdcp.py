@@ -239,30 +239,26 @@ def check_sdcp(index, mainboard_id=None):
             # Topic: sdcp/request/{MainboardID}
             topic = f"sdcp/request/{mainboard_id}"
             
-            # Try 1: Status Request (Int Cmd? String Cmd?)
-            # Search results suggested Cmd: 0 might be status or info.
+            # Try 1: Cmd 0 (Status/Info)
             cmds_to_try.append(json.dumps({
                 "Id": f"{int(time.time()*1000)}", 
                 "Topic": topic,
                 "Data": {"Cmd": 0, "MainboardID": mainboard_id, "From": "Client"} 
             }))
             
-            # Try 2: "GetStatus" string
+            # Try 2: Cmd 1 (Status?)
             cmds_to_try.append(json.dumps({
                 "Id": f"{int(time.time()*1000)+1}", 
                 "Topic": topic,
-                "Data": {"Cmd": "GetStatus", "MainboardID": mainboard_id, "From": "Client"} 
+                "Data": {"Cmd": 1, "MainboardID": mainboard_id, "From": "Client"} 
             }))
-            
-            # Try 3: Empty Data to trigger response
+
+             # Try 3: "GetStatus" string
             cmds_to_try.append(json.dumps({
                 "Id": f"{int(time.time()*1000)+2}", 
                 "Topic": topic,
-                "Data": {} 
+                "Data": {"Cmd": "GetStatus", "MainboardID": mainboard_id, "From": "Client"} 
             }))
-
-            # Try 4: Subscribe?
-            # pure guess: Cmd 64 or something for subscribe?
             
         else:
              cmds_to_try.append(json.dumps({
