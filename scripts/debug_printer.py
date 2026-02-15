@@ -8,9 +8,18 @@ import time
 # Basic .env parser if dotenv is not installed
 def load_env_file():
     env_vars = {}
-    if os.path.exists('.env'):
+    env_paths = ['.env', '../.env', os.path.join(os.path.dirname(__file__), '../.env')]
+    
+    target_path = None
+    for path in env_paths:
+        if os.path.exists(path):
+            target_path = path
+            break
+            
+    if target_path:
+        print(f"Loading .env from: {os.path.abspath(target_path)}")
         try:
-            with open('.env', 'r') as f:
+            with open(target_path, 'r') as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith('#'): continue
@@ -19,6 +28,9 @@ def load_env_file():
                         env_vars[k.strip()] = v.strip().strip("'").strip('"')
         except Exception as e:
             print(f"Failed to read .env: {e}")
+    else:
+        print("WARNING: .env file not found in current or parent directory.")
+
     # Update environment
     for k, v in env_vars.items():
         if k not in os.environ:
