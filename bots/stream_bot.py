@@ -28,6 +28,13 @@ class StreamBot(discord.Client):
             logger.warning("STREAM_CHANNEL_ID not set or invalid.")
             return
 
+        # Set Nickname
+        for guild in self.guilds:
+            try:
+                await guild.me.edit(nick=bot_config.STREAM_BOT_NICKNAME)
+            except Exception as e:
+                logger.error(f"Failed to change nickname in {guild.name}: {e}")
+
         # Start streams
         await self.start_streams()
 

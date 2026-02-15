@@ -17,6 +17,7 @@ EVENT_BOT_FOOTER = "Notifying you of upcoming events!"
 
 # Stream Bot
 ENABLE_STREAM_BOT = True
+STREAM_BOT_NICKNAME = "The G-Code Guardian"
 
 # Welcome Puns
 WELCOME_PUNS = [
