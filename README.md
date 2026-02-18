@@ -138,7 +138,18 @@ Manages 3D printer filament inventory, tracking usage and remaining weights.
 | :--- | :--- | :--- |
 | `!filament setup` | **Admin** | Deploys the Public and Admin dashboards to the channels specified in `.env`. |
 
+| `!filament setup` | **Admin** | Deploys the Public and Admin dashboards to the channels specified in `.env`. |
+
 ---
+
+### 7. Universal Admin Control
+**Command:** `!admin_setup`
+
+Consolidates all bot admin panels into a single channel.
+
+**Configuration:**
+- Set `ADMIN_CHANNEL_ID` in `.env` to the ID of your secure admin channel.
+- Run `!admin_setup` in that channel to generate all control panels.
 
 
 ## Installation & Setup
@@ -207,7 +218,11 @@ SCHEDULE_BOT_TOKEN=your_token_here
 FILAMENT_BOT_TOKEN=your_token_here
 FILAMENT_DATA_PATH=./data
 FILAMENT_PUBLIC_CHANNEL_ID=123456789
+FILAMENT_PUBLIC_CHANNEL_ID=123456789
 FILAMENT_ADMIN_CHANNEL_ID=987654321
+
+# Universal Admin
+ADMIN_CHANNEL_ID=123456789 # Channel for !admin_setup command
 ```
 
 ### Feature Toggles (`bot_config.py`)

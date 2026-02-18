@@ -363,6 +363,38 @@ class StreamBot(discord.Client):
         return {}
 
     async def on_message(self, message):
+        if message.author == self.user:
+            return
+
+        # Universal Admin Setup
+        if message.content.startswith('!admin_setup'):
+             if not message.author.guild_permissions.administrator:
+                 return
+            
+             # Check configured admin channel
+             admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
+             if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
+                return
+
+             embed = discord.Embed(
+                 title="The G-Code Guardian (Stream Bot)",
+                 description="Manages 3D printer streams.\n\n**Usage:**\n• **Auto-Start**: Streams start automatically on boot.\n• **Restart**: Use the button below if streams get stuck.",
+                 color=0xF1C40F
+             )
+             
+             view = discord.ui.View()
+             btn = discord.ui.Button(label="Restart Streams", style=discord.ButtonStyle.danger)
+             async def restart_cb(interaction):
+                 if not interaction.user.guild_permissions.administrator:
+                     await interaction.response.send_message("Admin only.", ephemeral=True)
+                     return
+                 await interaction.response.send_message("Restarting streams...", delete_after=5)
+                 await self.purge_and_restart()
+             btn.callback = restart_cb
+             view.add_item(btn)
+             
+             await message.channel.send(embed=embed, view=view)
+             return
         # Simple command to force restart streams if needed
         if message.content == "!restart_streams" and message.author.guild_permissions.administrator:
             await message.channel.send("Restarting streams & purging channel...", delete_after=5)

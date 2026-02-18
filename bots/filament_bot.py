@@ -256,6 +256,24 @@ class FilamentBot(discord.Client):
         if message.author == self.user:
             return
 
+        # Universal Admin Setup
+        if message.content.startswith('!admin_setup'):
+            if not message.author.guild_permissions.administrator:
+                 return 
+            
+            # Check configured admin channel
+            admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
+            if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
+                return
+            
+            # Post Admin Dashboard
+            try:
+                # We use the existing get_admin_embed and AdminDashboardView
+                await message.channel.send(embed=self.get_admin_embed(), view=AdminDashboardView(self))
+            except Exception as e:
+                print(f"FilamentBot failed to post admin setup: {e}")
+            return
+
         # Setup Command
         if message.content.startswith('!filament setup'):
             if not message.author.guild_permissions.administrator:

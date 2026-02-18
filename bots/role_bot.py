@@ -23,6 +23,24 @@ class RoleBot(discord.Client):
         if message.author == self.user:
             return
 
+        # Universal Admin Setup
+        if message.content.startswith('!admin_setup'):
+             if not message.author.guild_permissions.administrator:
+                 return
+
+             # Check configured admin channel
+             admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
+             if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
+                return
+
+             embed = discord.Embed(
+                 title="Sudo Master (Role Bot)",
+                 description="Manages roles and verification.\n\n**Commands:**\n`!setup_reaction #channel \"Title\" <Emoji> @Role ...`\n*(Creates a self-assign role menu)*\n\n`!fix_roles @OldRole @Pre2024Role @Post2024Role`\n*(Migrates users based on join date)*",
+                 color=0x3498DB
+             )
+             await message.channel.send(embed=embed)
+             return
+
         # Debug: Print raw message content
         print(f"DEBUG: Message from {message.author}: {message.content}")
 

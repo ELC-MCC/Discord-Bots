@@ -113,3 +113,28 @@ class WelcomeBot(discord.Client):
                 print(f"Error sending welcome message: {e}")
         else:
             print(f"Could not find any of the following channels: {', '.join(target_channels)} to greet {member.name}")
+
+    async def on_message(self, message):
+        if message.author == self.user:
+            return
+
+        # Universal Admin Setup
+        if message.content.startswith('!admin_setup'):
+             if not message.author.guild_permissions.administrator:
+                 return
+            
+             # Check configured admin channel
+             admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
+             if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
+                return
+
+             # Get current config status
+             welcome_chan = os.getenv('WELCOME_CHANNEL_ID', 'Not Set')
+             
+             embed = discord.Embed(
+                 title="Jeff the Doorman (Welcome Bot)",
+                 description=f"Welcomes new members with puns.\n\n**Status:**\n• **Welcome Channel ID:** `{welcome_chan}`\n• **Auto-Role:** Active (if configured)",
+                 color=0xE91E63
+             )
+             await message.channel.send(embed=embed)
+             return

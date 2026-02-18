@@ -117,6 +117,46 @@ class ScheduleBot(discord.Client):
         if message.author == self.user:
             return
 
+        # Universal Admin Setup
+        if message.content.startswith('!admin_setup'):
+             if not message.author.guild_permissions.administrator:
+                 return
+
+             # Check configured admin channel
+             admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
+             if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
+                return
+
+             view = ui.View()
+             button = ui.Button(label="Edit Weekly Schedule", style=discord.ButtonStyle.primary)
+             
+             # We need to redefine the callback here or extract it. 
+             # For simplicity, I'll inline a wrapper that calls the logic or just re-implement:
+             async def edit_button_callback(interaction):
+                if not interaction.user.guild_permissions.administrator:
+                    await interaction.response.send_message("Only Admins can edit the schedule.", ephemeral=True)
+                    return
+                
+                modal = ScheduleModal()
+                current_schedule = self.schedule_data.get('schedule', {})
+                modal.monday.default = current_schedule.get('Monday', '')
+                modal.tuesday.default = current_schedule.get('Tuesday', '')
+                modal.wednesday.default = current_schedule.get('Wednesday', '')
+                modal.thursday.default = current_schedule.get('Thursday', '')
+                modal.friday.default = current_schedule.get('Friday', '')
+                await interaction.response.send_modal(modal)
+
+             button.callback = edit_button_callback
+             view.add_item(button)
+             
+             embed = discord.Embed(
+                 title="The Timekeeper (Schedule Bot)",
+                 description="Manages the weekly schedule.\n\n**Usage:**\n• Click **Edit Weekly Schedule** to update open hours.\n• Use `!set_schedule_channel` in the target channel to set where the public schedule appears.",
+                 color=0x9B59B6
+             )
+             await message.channel.send(embed=embed, view=view)
+             return
+
         # Command: !set_schedule_channel
         if message.content.startswith('!set_schedule_channel'):
             if not message.author.guild_permissions.administrator:
