@@ -128,6 +128,10 @@ class WelcomeBot(discord.Client):
              if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
                 return
 
+             # Wait for purge
+             import asyncio
+             await asyncio.sleep(2)
+
              # Get current config status
              welcome_chan = os.getenv('WELCOME_CHANNEL_ID', 'Not Set')
              

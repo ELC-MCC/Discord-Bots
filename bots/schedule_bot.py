@@ -31,6 +31,29 @@ class ScheduleModal(ui.Modal, title="Edit Weekly Schedule"):
         await interaction.response.send_message("Schedule updated successfully!", ephemeral=True)
         await bot.update_schedule_display()
 
+        await bot.update_schedule_display()
+
+class ScheduleAdminView(ui.View):
+    def __init__(self, bot: 'ScheduleBot'):
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    @ui.button(label="Edit Weekly Schedule", style=discord.ButtonStyle.primary, custom_id="schedule_admin_edit")
+    async def edit_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("Only Admins can edit the schedule.", ephemeral=True)
+            return
+        
+        modal = ScheduleModal()
+        # Pre-fill with current data
+        current_schedule = self.bot.schedule_data.get('schedule', {})
+        modal.monday.default = current_schedule.get('Monday', '')
+        modal.tuesday.default = current_schedule.get('Tuesday', '')
+        modal.wednesday.default = current_schedule.get('Wednesday', '')
+        modal.thursday.default = current_schedule.get('Thursday', '')
+        modal.friday.default = current_schedule.get('Friday', '')
+        await interaction.response.send_modal(modal)
+
 class ScheduleBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -67,6 +90,12 @@ class ScheduleBot(discord.Client):
     def save_schedule(self):
         with open(self.schedule_file, 'w') as f:
             json.dump(self.schedule_data, f, indent=4)
+
+    async def setup_hook(self):
+        self.add_view(ScheduleAdminView(self))
+
+    async def setup_hook(self):
+        self.add_view(ScheduleAdminView(self))
 
     async def on_ready(self):
         print(f'{bot_config.SCHEDULE_BOT_NICKNAME} logged in as {self.user} (ID: {self.user.id})')
@@ -127,34 +156,15 @@ class ScheduleBot(discord.Client):
              if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
                 return
 
-             view = ui.View()
-             button = ui.Button(label="Edit Weekly Schedule", style=discord.ButtonStyle.primary)
-             
-             # We need to redefine the callback here or extract it. 
-             # For simplicity, I'll inline a wrapper that calls the logic or just re-implement:
-             async def edit_button_callback(interaction):
-                if not interaction.user.guild_permissions.administrator:
-                    await interaction.response.send_message("Only Admins can edit the schedule.", ephemeral=True)
-                    return
-                
-                modal = ScheduleModal()
-                current_schedule = self.schedule_data.get('schedule', {})
-                modal.monday.default = current_schedule.get('Monday', '')
-                modal.tuesday.default = current_schedule.get('Tuesday', '')
-                modal.wednesday.default = current_schedule.get('Wednesday', '')
-                modal.thursday.default = current_schedule.get('Thursday', '')
-                modal.friday.default = current_schedule.get('Friday', '')
-                await interaction.response.send_modal(modal)
+             # Wait for purge
+             await asyncio.sleep(2)
 
-             button.callback = edit_button_callback
-             view.add_item(button)
-             
              embed = discord.Embed(
                  title="The Timekeeper (Schedule Bot)",
                  description="Manages the weekly schedule.\n\n**Usage:**\n• Click **Edit Weekly Schedule** to update open hours.\n• Use `!set_schedule_channel` in the target channel to set where the public schedule appears.",
                  color=0x9B59B6
              )
-             await message.channel.send(embed=embed, view=view)
+             await message.channel.send(embed=embed, view=ScheduleAdminView(self))
              return
 
         # Command: !set_schedule_channel

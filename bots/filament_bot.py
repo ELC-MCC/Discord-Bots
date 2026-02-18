@@ -268,6 +268,10 @@ class FilamentBot(discord.Client):
             
             # Post Admin Dashboard
             try:
+                # Master Purge: Filament Bot clears the channel first
+                # We limit to 100 messages to be safe, or just purge all if possible
+                await message.channel.purge(limit=20)
+                
                 # We use the existing get_admin_embed and AdminDashboardView
                 await message.channel.send(embed=self.get_admin_embed(), view=AdminDashboardView(self))
             except Exception as e:

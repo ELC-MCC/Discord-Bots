@@ -15,6 +15,20 @@ from utils.sdcp_client import SDCPClient
 # Setup Logging
 logger = logging.getLogger("StreamBot")
 
+
+class StreamAdminView(discord.ui.View):
+    def __init__(self, bot: 'StreamBot'):
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    @discord.ui.button(label="Restart Streams", style=discord.ButtonStyle.danger, custom_id="stream_admin_restart")
+    async def restart_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+         if not interaction.user.guild_permissions.administrator:
+             await interaction.response.send_message("Admin only.", ephemeral=True)
+             return
+         await interaction.response.send_message("Restarting streams...", delete_after=5)
+         await self.bot.purge_and_restart()
+
 class StreamBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -23,6 +37,9 @@ class StreamBot(discord.Client):
         self.update_interval = 3.0 # Seconds
         self.has_started = False
         self.sdcp_clients = {} # Cache clients per URL/IP
+
+    async def setup_hook(self):
+        self.add_view(StreamAdminView(self))
 
     async def on_ready(self):
         logger.info(f"StreamBot logged in as {self.user}")
@@ -382,18 +399,10 @@ class StreamBot(discord.Client):
                  color=0xF1C40F
              )
              
-             view = discord.ui.View()
-             btn = discord.ui.Button(label="Restart Streams", style=discord.ButtonStyle.danger)
-             async def restart_cb(interaction):
-                 if not interaction.user.guild_permissions.administrator:
-                     await interaction.response.send_message("Admin only.", ephemeral=True)
-                     return
-                 await interaction.response.send_message("Restarting streams...", delete_after=5)
-                 await self.purge_and_restart()
-             btn.callback = restart_cb
-             view.add_item(btn)
+             # Wait for purge
+             await asyncio.sleep(2)
              
-             await message.channel.send(embed=embed, view=view)
+             await message.channel.send(embed=embed, view=StreamAdminView(self))
              return
         # Simple command to force restart streams if needed
         if message.content == "!restart_streams" and message.author.guild_permissions.administrator:

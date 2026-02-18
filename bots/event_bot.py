@@ -125,6 +125,23 @@ class DeleteEventView(ui.View):
         super().__init__()
         self.add_item(DeleteEventSelect(events, bot))
 
+class EventAdminView(ui.View):
+    def __init__(self, bot: 'EventBot'):
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    @ui.button(label="Add Event", style=discord.ButtonStyle.green, custom_id="event_admin_add")
+    async def add_event(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(EventModal())
+
+    @ui.button(label="Delete Event", style=discord.ButtonStyle.red, custom_id="event_admin_del")
+    async def delete_event(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.bot.events:
+            await interaction.response.send_message("No events to delete.", ephemeral=True, delete_after=5)
+            return
+        del_view = DeleteEventView(self.bot.events, self.bot)
+        await interaction.response.send_message("Select an event to delete:", view=del_view, ephemeral=True)
+
 # --- Main Bot Class ---
 
 class EventBot(discord.Client):
@@ -156,8 +173,7 @@ class EventBot(discord.Client):
             self.loop.create_task(self.update_upcoming_message())
 
     async def setup_hook(self):
-        # No persistent views needed anymore
-        pass
+        self.add_view(EventAdminView(self))
 
     async def on_ready(self):
         print(f'The Event Loop logged in as {self.user} (ID: {self.user.id})')
@@ -336,31 +352,15 @@ class EventBot(discord.Client):
              if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
                 return
 
-             view = ui.View()
-             # Add Event Button
-             add_btn = ui.Button(label="Add Event", style=discord.ButtonStyle.green, custom_id="event_admin_add")
-             async def add_cb(interaction):
-                 await interaction.response.send_modal(EventModal())
-             add_btn.callback = add_cb
-             view.add_item(add_btn)
-
-             # Delete Event Button
-             del_btn = ui.Button(label="Delete Event", style=discord.ButtonStyle.red, custom_id="event_admin_del")
-             async def del_cb(interaction):
-                if not self.events:
-                    await interaction.response.send_message("No events to delete.", ephemeral=True, delete_after=5)
-                    return
-                del_view = DeleteEventView(self.events, self)
-                await interaction.response.send_message("Select an event to delete:", view=del_view, ephemeral=True)
-             del_btn.callback = del_cb
-             view.add_item(del_btn)
+             # Wait for purge
+             await asyncio.sleep(2)
 
              embed = discord.Embed(
                  title="The Event Loop (Event Bot)",
                  description="Manages community events.\n\n**Usage:**\n• **Add Event**: Create a new event listing.\n• **Delete Event**: Remove an existing event.\n• Use `!setup_upcoming` in the target channel to spawn the live dashboard.",
                  color=0x2ECC71
              )
-             await message.channel.send(embed=embed, view=view)
+             await message.channel.send(embed=embed, view=EventAdminView(self))
              return
 
         # Setup Command - Add Event via Modal

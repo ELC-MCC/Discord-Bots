@@ -33,6 +33,10 @@ class RoleBot(discord.Client):
              if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
                 return
 
+             # Wait for purge
+             import asyncio
+             await asyncio.sleep(2)
+
              embed = discord.Embed(
                  title="Sudo Master (Role Bot)",
                  description="Manages roles and verification.\n\n**Commands:**\n`!setup_reaction #channel \"Title\" <Emoji> @Role ...`\n*(Creates a self-assign role menu)*\n\n`!fix_roles @OldRole @Pre2024Role @Post2024Role`\n*(Migrates users based on join date)*",
