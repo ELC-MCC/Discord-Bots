@@ -31,8 +31,6 @@ class ScheduleModal(ui.Modal, title="Edit Weekly Schedule"):
         await interaction.response.send_message("Schedule updated successfully!", ephemeral=True)
         await bot.update_schedule_display()
 
-        await bot.update_schedule_display()
-
 class ScheduleAdminView(ui.View):
     def __init__(self, bot: 'ScheduleBot'):
         super().__init__(timeout=None)
@@ -90,9 +88,6 @@ class ScheduleBot(discord.Client):
     def save_schedule(self):
         with open(self.schedule_file, 'w') as f:
             json.dump(self.schedule_data, f, indent=4)
-
-    async def setup_hook(self):
-        self.add_view(ScheduleAdminView(self))
 
     async def setup_hook(self):
         self.add_view(ScheduleAdminView(self))
