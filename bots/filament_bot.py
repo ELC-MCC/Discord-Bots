@@ -25,7 +25,8 @@ def save_config(config):
 
 # --- Modals ---
 class LogUsageModal(ui.Modal, title="Log Filament Usage"):
-    amount = ui.TextInput(label="Amount Used (g)", placeholder="e.g., 50.5", min_length=1, max_length=10)
+    first_name = ui.TextInput(label="First Name", placeholder="Enter your name", min_length=1, max_length=50)
+    amount = ui.TextInput(label="Amount Used (g)", placeholder="e.g. 50.5", min_length=1, max_length=10)
 
     def __init__(self, bot, filament_id, filament_name):
         super().__init__()
@@ -36,21 +37,26 @@ class LogUsageModal(ui.Modal, title="Log Filament Usage"):
     async def on_submit(self, interaction: discord.Interaction):
         try:
             amount_val = float(self.amount.value)
-            self.bot.data_manager.log_usage(interaction.user.display_name, self.filament_id, amount_val)
+            
+            # Combine name and user for logging
+            user_display = f"{self.first_name.value} ({interaction.user.display_name})"
+            
+            self.bot.data_manager.log_usage(user_display, self.filament_id, amount_val)
             self.bot.data_manager.update_filament_weight(self.filament_id, amount_val)
             
+            # Send a regular message that auto-deletes instead of ephemeral
             await interaction.response.send_message(
-                f"✅ Logged **{amount_val}g** usage for **{self.filament_name}**.",
-                ephemeral=True
+                f"Logged **{amount_val}g** usage for **{self.filament_name}** by **{self.first_name.value}**.",
+                delete_after=5
             )
             # Trigger dashboard updates
             await self.bot.update_dashboards()
             
         except ValueError:
-            await interaction.response.send_message("❌ Invalid amount. Please enter a number.", ephemeral=True)
+            await interaction.response.send_message("Invalid amount. Please enter a number.", delete_after=5)
         except Exception as e:
             print(f"Error logging usage: {e}")
-            await interaction.response.send_message(f"❌ An error occurred: {e}", ephemeral=True)
+            await interaction.response.send_message(f"An error occurred: {e}", delete_after=5)
 
 class AddFilamentModal(ui.Modal, title="Add New Filament"):
     brand = ui.TextInput(label="Brand", placeholder="e.g., Elegoo", max_length=50)
@@ -72,8 +78,8 @@ class AddFilamentModal(ui.Modal, title="Add New Filament"):
                 weight_val
             )
             await interaction.response.send_message(
-                f"✅ Added **{self.brand.value} {self.type_name.value} ({self.color.value})** with ID **{new_id}**.",
-                ephemeral=True
+                f"Added **{self.brand.value} {self.type_name.value} ({self.color.value})** with ID **{new_id}**.",
+                delete_after=5
             )
             await self.bot.update_dashboards()
             
@@ -124,7 +130,7 @@ class PublicDashboardView(ui.View):
         view = ui.View()
         select = FilamentSelect(self.bot)
         if not select.options:
-             await interaction.response.send_message("⚠️ No filament in inventory!", ephemeral=True)
+             await interaction.response.send_message("No filament in inventory!", delete_after=5)
              return
         view.add_item(select)
         await interaction.response.send_message("Select the filament you used:", view=view, ephemeral=True)
@@ -179,21 +185,21 @@ class FilamentBot(discord.Client):
         inventory = self.data_manager.get_inventory()
         
         embed = discord.Embed(
-            title="🧵 Filament Inventory & Status",
-            description="Live tracking of ELC 3D Printer Filament.",
+            title="Filament Inventory & Status",
+            description="# Live tracking of ELC 3D Printer Filament.",
             color=0x3498DB
         )
         
         # Stats Field
         stats_text = (
-            f"**Daily Used:** {stats['daily']}g\n"
-            f"**Weekly Used:** {stats['weekly']}g\n"
-            f"**Monthly Used:** {stats['monthly']}g"
+            f"### Daily Used: {stats['daily']}g\n"
+            f"### Weekly Used: {stats['weekly']}g\n"
+            f"### Monthly Used: {stats['monthly']}g"
         )
-        embed.add_field(name="📊 Consumption Stats", value=stats_text, inline=False)
+        embed.add_field(name="## Consumption Stats", value=stats_text, inline=False)
         
         if not inventory:
-            embed.add_field(name="Inventory", value="No filament recorded.", inline=False)
+            embed.add_field(name="## Inventory", value="No filament recorded.", inline=False)
         else:
             # Group by Type
             grouped = {}
@@ -205,8 +211,8 @@ class FilamentBot(discord.Client):
             for ftype, items in grouped.items():
                 content = ""
                 for item in items:
-                    content += f"• **{item['brand']} {item['color']}**: {item['weight_g']}g\n"
-                embed.add_field(name=f"📦 {ftype}", value=content, inline=False)
+                    content += f"### {item['brand']} {item['color']}: {item['weight_g']}g\n"
+                embed.add_field(name=f"## {ftype}", value=content, inline=False)
         
         embed.set_footer(text="Use the button below to log usage.")
         embed.timestamp = discord.utils.utcnow()
@@ -214,7 +220,7 @@ class FilamentBot(discord.Client):
 
     def get_admin_embed(self):
         embed = discord.Embed(
-            title="🔧 Filament Admin Controls",
+            title="Filament Admin Controls",
             description="Administrative tools for managing filament inventory.",
             color=0xE74C3C
         )
@@ -282,3 +288,21 @@ class FilamentBot(discord.Client):
                 await message.channel.send(f"❌ Failed to post Admin Dashboard: {e}")
 
             save_config(self.config)
+
+        # Auto-Clear Messages in Public Channel
+        # Ignore messages from the bot itself (unless we want to clean up its own responses, 
+        # but we handle those with delete_after)
+        # AND ignore the dashboard message if it somehow triggers this
+        
+        public_channel_id = self.config.get('public_channel_id')
+        if public_channel_id and message.channel.id == int(public_channel_id):
+             # Don't delete the dashboard message
+            public_msg_id = self.config.get('public_message_id')
+            if public_msg_id and message.id == int(public_msg_id):
+                return
+            
+            # Delete user messages to keep channel clean
+            try:
+                await message.delete(delay=1) # Small delay to ensure it's processed
+            except:
+                pass
