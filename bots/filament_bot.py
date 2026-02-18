@@ -196,20 +196,20 @@ class FilamentBot(discord.Client):
         
         embed = discord.Embed(
             title="Filament Inventory & Status",
-            description="# Live tracking of ELC 3D Printer Filament.",
+            description="Live tracking of ELC 3D Printer Filament.",
             color=0x3498DB
         )
         
         # Stats Field
         stats_text = (
-            f"### Daily Used: {stats['daily']}g\n"
-            f"### Weekly Used: {stats['weekly']}g\n"
-            f"### Monthly Used: {stats['monthly']}g"
+            f"Daily Used: {stats['daily']}g\n"
+            f"Weekly Used: {stats['weekly']}g\n"
+            f"Monthly Used: {stats['monthly']}g"
         )
-        embed.add_field(name="## Consumption Stats", value=stats_text, inline=False)
+        embed.add_field(name="Consumption Stats", value=stats_text, inline=False)
         
         if not inventory:
-            embed.add_field(name="## Inventory", value="No filament recorded.", inline=False)
+            embed.add_field(name="Inventory", value="No filament recorded.", inline=False)
         else:
             # Group by Type
             grouped = {}
@@ -221,8 +221,8 @@ class FilamentBot(discord.Client):
             for ftype, items in grouped.items():
                 content = ""
                 for item in items:
-                    content += f"### {item['brand']} {item['color']}: {item['weight_g']}g\n"
-                embed.add_field(name=f"## {ftype}", value=content, inline=False)
+                    content += f"{item['brand']} {item['color']}: {item['weight_g']}g\n"
+                embed.add_field(name=f"{ftype}", value=content, inline=False)
         
         embed.set_footer(text="Use the button below to log usage.")
         embed.timestamp = discord.utils.utcnow()
