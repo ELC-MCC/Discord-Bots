@@ -121,6 +121,124 @@ class RoleBot(discord.Client):
         if message.content.startswith('!fix_roles'):
             await self.chat_command_fix_roles(message)
 
+        # Command: !migrate_alumni @Alumni @Member [Optional:@OldMsg]
+        if message.content.startswith('!migrate_alumni'):
+             await self.chat_command_migrate_alumni(message)
+
+    async def chat_command_migrate_alumni(self, message):
+        """
+        Migrates users to Alumni or Member roles based on join date.
+        Cutoff: May 1st, 2024
+        Usage: !migrate_alumni @AlumniRole @MemberRole [Optional:@OldRoleToRemove]
+        """
+        # 1. Permission Check
+        if not message.author.guild_permissions.administrator:
+            await message.reply("Administrator permissions required.")
+            return
+
+        # 2. Parse Arguments
+        # We expect at least 2 role mentions (Alumni, Member). 3rd is optional (Old Removal).
+        if len(message.role_mentions) < 2:
+            await message.reply("Usage: `!migrate_alumni @AlumniRole @OngoingMemberRole [Optional:@OldRoleToRemove]`")
+            return
+
+        alumni_role = message.role_mentions[0]
+        member_role = message.role_mentions[1]
+        remove_role = message.role_mentions[2] if len(message.role_mentions) > 2 else None
+
+        # 3. Setup Migration Variables
+        guild = message.guild
+        from datetime import datetime, timezone
+        # Fixed Cutoff Date: May 1st, 2024 (UTC)
+        cutoff_date = datetime(2024, 5, 1, tzinfo=timezone.utc)
+        
+        stats = {
+            "processed": 0,
+            "alumni_added": 0,
+            "members_added": 0,
+            "roles_removed": 0,
+            "errors": 0
+        }
+
+        # 4. Notify Start
+        status_msg = await message.reply(
+            f"**Starting Migration**\n"
+            f"Cutoff Date: {cutoff_date.strftime('%Y-%m-%d')}\n"
+            f"Alumni Role: {alumni_role.mention}\n"
+            f"Member Role: {member_role.mention}\n"
+            f"Remove Role: {remove_role.mention if remove_role else 'None'}\n"
+            f"Total Members to Check: {len(guild.members)}\n"
+            f"Processing..."
+        )
+
+        try:
+            # 5. Iterate Members
+            for member in guild.members:
+                if member.bot: 
+                    continue # Skip bots
+                
+                stats["processed"] += 1
+                
+                # Update status message every 50 members to avoid rate limits
+                if stats["processed"] % 50 == 0:
+                    try:
+                        await status_msg.edit(content=f"Processing... {stats['processed']}/{len(guild.members)} members checked...")
+                    except: 
+                        pass # Ignore editing errors
+
+                try:
+                    # Determine Status based on Join Date
+                    if not member.joined_at:
+                        # Should technically never happen for a member in the guild, but safety first
+                        print(f"Skipping {member.name}: No joined_at date.")
+                        continue
+
+                    is_alumni = member.joined_at < cutoff_date
+
+                    # ACTION 1: Assign New Role
+                    if is_alumni:
+                        # Give Alumni Role if they don't have it
+                        if alumni_role not in member.roles:
+                            await member.add_roles(alumni_role)
+                            stats["alumni_added"] += 1
+                            print(f"[Migration] {member.name} -> Alumni (Joined: {member.joined_at.date()})")
+                    else:
+                        # Give Member Role if they don't have it
+                        if member_role not in member.roles:
+                            await member.add_roles(member_role)
+                            stats["members_added"] += 1
+                            print(f"[Migration] {member.name} -> Member (Joined: {member.joined_at.date()})")
+
+                    # ACTION 2: Remove Old Role (if specified and present)
+                    if remove_role and remove_role in member.roles:
+                        await member.remove_roles(remove_role)
+                        stats["roles_removed"] += 1
+                
+                except discord.Forbidden:
+                    print(f"ERROR: Missing permissions to manage roles for {member.name}.")
+                    stats["errors"] += 1
+                except Exception as e:
+                    print(f"ERROR processing {member.name}: {e}")
+                    stats["errors"] += 1
+            
+            # 6. Final Report
+            await status_msg.edit(content=(
+                f"**Migration Complete** ✅\n"
+                f"-------------------------\n"
+                f"**Total Processed:** {stats['processed']}\n"
+                f"**Alumni Roles Added:** {stats['alumni_added']}\n"
+                f"**Member Roles Added:** {stats['members_added']}\n"
+                f"**Old Roles Removed:** {stats['roles_removed']}\n"
+                f"**Errors:** {stats['errors']}\n"
+                f"-------------------------\n"
+                f"Cutoff was: {cutoff_date.strftime('%Y-%m-%d')}"
+            ))
+
+        except Exception as e:
+            await status_msg.edit(content=f"**CRITICAL ERROR during migration:** {e}")
+            import traceback
+            traceback.print_exc()
+
     async def on_raw_reaction_add(self, payload):
         await self.handle_reaction(payload, add=True)
 
