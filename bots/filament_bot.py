@@ -90,6 +90,51 @@ class AddFilamentModal(ui.Modal, title="Add New Filament"):
             print(f"Error adding filament: {e}")
             await interaction.response.send_message(f"❌ An error occurred: {e}", ephemeral=True)
 
+class EditFilamentModal(ui.Modal, title="Edit Filament Details"):
+    brand = ui.TextInput(label="Brand", max_length=50)
+    type_name = ui.TextInput(label="Type", max_length=20)
+    color = ui.TextInput(label="Color", max_length=30)
+    weight = ui.TextInput(label="Current Weight (g)", max_length=10)
+
+    def __init__(self, bot, filament_id, current_data):
+        super().__init__()
+        self.bot = bot
+        self.filament_id = filament_id
+        
+        # Pre-fill values
+        self.brand.default = current_data.get('brand', '')
+        self.type_name.default = current_data.get('type', '')
+        self.color.default = current_data.get('color', '')
+        self.weight.default = str(current_data.get('weight_g', 0))
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            # Update data
+            base_weight = float(self.weight.value)
+            
+            success = self.bot.data_manager.update_inventory_item(
+                self.filament_id,
+                brand=self.brand.value,
+                type=self.type_name.value,
+                color=self.color.value,
+                weight_g=base_weight
+            )
+            
+            if success:
+                await interaction.response.send_message(
+                    f"✅ Updated filament ID **{self.filament_id}**:\n"
+                    f"{self.brand.value} {self.type_name.value} - {self.color.value} ({base_weight}g)",
+                    ephemeral=True
+                )
+                await self.bot.update_dashboards()
+            else:
+                await interaction.response.send_message("❌ Failed to update filament. ID not found.", ephemeral=True)
+
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid weight format.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
 # --- Select Menus ---
 class FilamentSelect(ui.Select):
     def __init__(self, bot):
@@ -120,6 +165,37 @@ class FilamentSelect(ui.Select):
         
         await interaction.response.send_modal(LogUsageModal(self.bot, filament_id, name))
 
+class EditFilamentSelect(ui.Select):
+    def __init__(self, bot):
+        self.bot = bot
+        options = []
+        inventory = self.bot.data_manager.get_inventory()
+        # Sort for easier finding
+        sorted_inv = sorted(inventory, key=lambda x: (x.get('brand', ''), x.get('type', ''), x.get('color', '')))
+        
+        for item in sorted_inv:
+            label = f"{item['brand']} {item['type']} - {item['color']}"
+            if len(label) > 100: label = label[:97] + "..."
+            
+            options.append(discord.SelectOption(
+                label=label,
+                description=f"ID: {item['id']} | {item['weight_g']}g",
+                value=str(item['id'])
+            ))
+            if len(options) >= 25: break
+
+        super().__init__(placeholder="Select filament to edit...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        filament_id = int(self.values[0])
+        inventory = self.bot.data_manager.get_inventory()
+        item = next((x for x in inventory if x['id'] == filament_id), None)
+        
+        if item:
+            await interaction.response.send_modal(EditFilamentModal(self.bot, filament_id, item))
+        else:
+            await interaction.response.send_message("❌ Filament not found!", ephemeral=True)
+
 # --- Public Dashboard View ---
 class PublicDashboardView(ui.View):
     def __init__(self, bot):
@@ -145,6 +221,16 @@ class AdminDashboardView(ui.View):
     @ui.button(label="Add Filament", style=discord.ButtonStyle.primary, custom_id="filament_admin_add")
     async def add_filament_btn(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(AddFilamentModal(self.bot))
+
+    @ui.button(label="Edit Filament", style=discord.ButtonStyle.primary, custom_id="filament_admin_edit")
+    async def edit_filament_btn(self, interaction: discord.Interaction, button: ui.Button):
+        view = ui.View()
+        select = EditFilamentSelect(self.bot)
+        if not select.options:
+             await interaction.response.send_message("No filament to edit!", ephemeral=True)
+             return
+        view.add_item(select)
+        await interaction.response.send_message("Select filament to edit:", view=view, ephemeral=True)
 
     @ui.button(label="Export Logs", style=discord.ButtonStyle.secondary, custom_id="filament_admin_export")
     async def export_logs_btn(self, interaction: discord.Interaction, button: ui.Button):

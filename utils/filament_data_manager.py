@@ -75,6 +75,21 @@ class FilamentDataManager:
         self.save_json(self.inventory_file, self.inventory)
         return new_id
 
+    def update_inventory_item(self, item_id, **kwargs):
+        """Updates an existing inventory item with new values."""
+        self.inventory = self.load_json(self.inventory_file)
+        for item in self.inventory:
+            if item['id'] == item_id:
+                for key, value in kwargs.items():
+                    if key in item:
+                        if key == 'weight_g':
+                            item[key] = round(float(value), 2)
+                        else:
+                            item[key] = value
+                self.save_json(self.inventory_file, self.inventory)
+                return True
+        return False
+
     def log_usage(self, user_name, filament_id, amount_used):
         """Records a usage event."""
         # Find filament details for the log
