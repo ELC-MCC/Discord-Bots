@@ -196,6 +196,46 @@ class EditFilamentSelect(ui.Select):
         else:
             await interaction.response.send_message("❌ Filament not found!", ephemeral=True)
 
+class DeleteFilamentSelect(ui.Select):
+    def __init__(self, bot):
+        self.bot = bot
+        options = []
+        inventory = self.bot.data_manager.get_inventory()
+        sorted_inv = sorted(inventory, key=lambda x: (x.get('brand', ''), x.get('type', ''), x.get('color', '')))
+        
+        for item in sorted_inv:
+            label = f"{item['brand']} {item['type']} - {item['color']}"
+            if len(label) > 100: label = label[:97] + "..."
+            
+            options.append(discord.SelectOption(
+                label=label,
+                description=f"ID: {item['id']} | {item['weight_g']}g",
+                value=str(item['id']),
+                emoji="🗑️"
+            ))
+            if len(options) >= 25: break
+
+        super().__init__(placeholder="Select filament to DELETE...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        filament_id = int(self.values[0])
+        inventory = self.bot.data_manager.get_inventory()
+        item = next((x for x in inventory if x['id'] == filament_id), None)
+        
+        if item:
+            # Confirm deletion logic could go here, but for now direct delete
+            success = self.bot.data_manager.delete_inventory_item(filament_id)
+            if success:
+                await interaction.response.send_message(
+                    f"🗑️ **Deleted Filament**: {item['brand']} {item['type']} - {item['color']}", 
+                    ephemeral=True
+                )
+                await self.bot.update_dashboards()
+            else:
+                await interaction.response.send_message("❌ Failed to delete item.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Filament not found!", ephemeral=True)
+
 # --- Public Dashboard View ---
 class PublicDashboardView(ui.View):
     def __init__(self, bot):
@@ -231,6 +271,16 @@ class AdminDashboardView(ui.View):
              return
         view.add_item(select)
         await interaction.response.send_message("Select filament to edit:", view=view, ephemeral=True)
+
+    @ui.button(label="Delete Filament", style=discord.ButtonStyle.danger, custom_id="filament_admin_delete")
+    async def delete_filament_btn(self, interaction: discord.Interaction, button: ui.Button):
+        view = ui.View()
+        select = DeleteFilamentSelect(self.bot)
+        if not select.options:
+             await interaction.response.send_message("No filament to delete!", ephemeral=True)
+             return
+        view.add_item(select)
+        await interaction.response.send_message("⚠️ **SELECT FILAMENT TO DELETE** ⚠️", view=view, ephemeral=True)
 
     @ui.button(label="Export Logs", style=discord.ButtonStyle.secondary, custom_id="filament_admin_export")
     async def export_logs_btn(self, interaction: discord.Interaction, button: ui.Button):

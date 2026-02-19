@@ -90,6 +90,17 @@ class FilamentDataManager:
                 return True
         return False
 
+    def delete_inventory_item(self, item_id):
+        """Removes an item from the inventory."""
+        self.inventory = self.load_json(self.inventory_file)
+        original_len = len(self.inventory)
+        self.inventory = [item for item in self.inventory if item['id'] != item_id]
+        
+        if len(self.inventory) < original_len:
+            self.save_json(self.inventory_file, self.inventory)
+            return True
+        return False
+
     def log_usage(self, user_name, filament_id, amount_used):
         """Records a usage event."""
         # Find filament details for the log
