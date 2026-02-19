@@ -2,6 +2,51 @@ import discord
 import os
 import re
 import bot_config
+from datetime import datetime, timezone
+
+class MigrationModal(discord.ui.Modal, title="Migrate Alumni Roles"):
+    alumni_role_id = discord.ui.TextInput(label="Alumni Role ID", placeholder="123456789", required=True)
+    member_role_id = discord.ui.TextInput(label="Member Role ID", placeholder="987654321", required=True)
+    cutoff_date = discord.ui.TextInput(label="Cutoff Date (YYYY-MM-DD)", placeholder="2024-05-01", default="2024-05-01", required=True)
+
+    def __init__(self, bot, channel):
+        super().__init__()
+        self.bot = bot
+        self.channel = channel
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message("⏳ Starting Migration... checks logs/channel.", ephemeral=True)
+        
+        try:
+            guild = interaction.guild
+            alumni_role = guild.get_role(int(self.alumni_role_id.value))
+            member_role = guild.get_role(int(self.member_role_id.value))
+            
+            date_str = self.cutoff_date.value
+            cutoff_dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            
+            if not alumni_role or not member_role:
+                 await self.channel.send("❌ Error: Invalid Role IDs provided in Modal.")
+                 return
+
+            # Call the helper logic
+            await self.bot._perform_migration(self.channel, guild, alumni_role, member_role, cutoff_dt)
+            
+        except ValueError:
+            await self.channel.send("❌ Error: Invalid Date Format. Use YYYY-MM-DD.")
+        except Exception as e:
+            await self.channel.send(f"❌ Error starting migration: {e}")
+
+class AdminDashboardView(discord.ui.View):
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    @discord.ui.button(label="Migrate Roles", style=discord.ButtonStyle.primary, emoji="🔄")
+    async def migrate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Open Modal
+        await interaction.response.send_modal(MigrationModal(self.bot, interaction.channel))
+
 
 class RoleBot(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -39,10 +84,11 @@ class RoleBot(discord.Client):
 
              embed = discord.Embed(
                  title="Sudo Master (Role Bot)",
-                 description="Manages roles and verification.\n\n**Commands:**\n`!setup_reaction #channel \"Title\" <Emoji> @Role ...`\n*(Creates a self-assign role menu)*\n\n`!fix_roles @OldRole @Pre2024Role @Post2024Role`\n*(Migrates users based on join date)*",
+                 description="Manages roles and verification.\n\n**Commands:**\n`!setup_reaction #channel \"Title\" <Emoji> @Role ...`\n*(Creates a self-assign role menu)*\n\n**Migration:**\nClick the button below to migrate users based on join date.",
                  color=0x3498DB
              )
-             await message.channel.send(embed=embed)
+             view = AdminDashboardView(self)
+             await message.channel.send(embed=embed, view=view)
              return
 
         # Debug: Print raw message content
@@ -117,9 +163,7 @@ class RoleBot(discord.Client):
                 await message.reply(f"Error: {e}")
                 print(f"Error in setup_reaction: {e}")
 
-        # Command: !fix_roles <remove_role_id> <pre_may_role_id> <post_may_role_id>
-        if message.content.startswith('!fix_roles'):
-            await self.chat_command_fix_roles(message)
+
 
         # Command: !migrate_alumni @Alumni @Member [Optional:@OldMsg]
         if message.content.startswith('!migrate_alumni'):
@@ -169,17 +213,27 @@ class RoleBot(discord.Client):
              return
         
         from datetime import datetime, timezone
-        # Fixed Cutoff Date: May 1st, 2024 (UTC)
-        cutoff_date = datetime(2024, 5, 1, tzinfo=timezone.utc)
-
-        print(f"DEBUG: Migration Args Parsed:")
-        print(f"  Alumni Role: {alumni_role.name} (ID: {alumni_role.id})")
-        print(f"  Member Role: {member_role.name} (ID: {member_role.id})")
-        print(f"  Cutoff Date: {cutoff_date}")
-
-        # 3. Setup Migration Variables
-        guild = message.guild
         
+        # Check for Date: YYYY-MM-DD
+        date_match = re.search(r'(\d{4}-\d{2}-\d{2})', message.content)
+        if date_match:
+             try:
+                 cutoff_date = datetime.strptime(date_match.group(1), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                 print(f"DEBUG: Using Custom Date: {cutoff_date}")
+             except ValueError:
+                 await message.reply("❌ Error: Invalid date format. Use YYYY-MM-DD.")
+                 return
+        else:
+             # Default Cutoff Date: May 1st, 2024 (UTC)
+             cutoff_date = datetime(2024, 5, 1, tzinfo=timezone.utc)
+
+        # 4. START MIGRATION HELPER
+        await self._perform_migration(message.channel, guild, alumni_role, member_role, cutoff_date, remove_role)
+
+    async def _perform_migration(self, channel, guild, alumni_role, member_role, cutoff_date, remove_role=None):
+        """
+        Reusable migration logic for both Chat Command and Admin UI.
+        """
         stats = {
             "processed": 0,
             "alumni_added": 0,
@@ -188,8 +242,8 @@ class RoleBot(discord.Client):
             "errors": 0
         }
 
-        # 4. Notify Start
-        status_msg = await message.reply(
+        # Notify Start
+        status_msg = await channel.send(
             f"**Starting Migration**\n"
             f"Cutoff Date: {cutoff_date.strftime('%Y-%m-%d')}\n"
             f"Alumni Role: {alumni_role.mention}\n"
@@ -200,7 +254,7 @@ class RoleBot(discord.Client):
         )
 
         try:
-            # 5. Iterate Members
+            # Iterate Members
             for member in guild.members:
                 if member.bot: 
                     continue # Skip bots
@@ -217,17 +271,11 @@ class RoleBot(discord.Client):
                 try:
                     # Determine Status based on Join Date
                     if not member.joined_at:
-                        # Should technically never happen for a member in the guild, but safety first
                         print(f"Skipping {member.name}: No joined_at date.")
                         continue
 
-
-
                     is_alumni = member.joined_at < cutoff_date
                     
-                    # LOGGING EVERY DECISION
-                    print(f"DEBUG: {member.name} | Joined: {member.joined_at} | IsAlumni: {is_alumni}")
-
                     import asyncio
                     
                     if is_alumni:
@@ -277,7 +325,7 @@ class RoleBot(discord.Client):
                 import asyncio
                 await asyncio.sleep(0.1)
             
-            # 6. Final Report
+            # Final Report
             await status_msg.edit(content=(
                 f"**Migration Complete** ✅\n"
                 f"-------------------------\n"
@@ -468,105 +516,5 @@ class RoleBot(discord.Client):
             import traceback
             traceback.print_exc()
 
-    async def chat_command_fix_roles(self, message):
-         # Command: !fix_roles <remove_role_id> <pre_may_role_id> <post_may_role_id>
-        if not message.author.guild_permissions.administrator:
-            await message.reply("Administrator permissions required.")
-            return
 
-        parts = message.content.split()
-        if len(parts) != 4:
-            await message.reply("Usage: `!fix_roles <exclude_role_id> <pre_may_role_id> <post_may_role_id>`")
-            return
-
-        if len(message.role_mentions) == 3:
-            # Use mentions if exactly 3 are provided
-            remove_role_id = message.role_mentions[0].id
-            pre_may_role_id = message.role_mentions[1].id
-            post_may_role_id = message.role_mentions[2].id
-        else:
-            try:
-                # Clean inputs to handle raw IDs (123) or Mentions (<@&123>) if manual ID entry
-                remove_role_id = int(re.sub(r'\D', '', parts[1]))
-                pre_may_role_id = int(re.sub(r'\D', '', parts[2]))
-                post_may_role_id = int(re.sub(r'\D', '', parts[3]))
-            except ValueError:
-                await message.reply("Invalid arguments. Please Mention the 3 roles or provide their IDs.")
-                return
-
-        guild = message.guild
-        remove_role = guild.get_role(remove_role_id)
-        pre_may_role = guild.get_role(pre_may_role_id)
-        post_may_role = guild.get_role(post_may_role_id)
-
-        if not pre_may_role or not post_may_role:
-             await message.reply("One or more target roles not found.")
-             return
-        
-        if not remove_role:
-            await message.reply(f"Role to remove (ID: {remove_role_id}) not found in this guild.")
-            return
-
-        # Date Threshold: May 1st, 2024
-        from datetime import datetime, timezone
-        cutoff_date = datetime(2024, 5, 1, tzinfo=timezone.utc)
-        
-        count_removed = 0
-        count_pre = 0
-        count_post = 0
-        
-        # Pre-calculation
-        target_members = [m for m in guild.members if remove_role in m.roles]
-        
-        status_msg = await message.reply(
-            f"**Starting Migration**\n"
-            f"Total Members: {len(guild.members)}\n"
-            f"Members with Role '{remove_role.name}': {len(target_members)}\n"
-            f"Processing..."
-        )
-        
-        processed_count = 0
-
-        for member in guild.members:
-            processed_count += 1
-            if processed_count % 25 == 0:
-                try:
-                    await status_msg.edit(content=f"Processing... {processed_count}/{len(guild.members)} members checked.")
-                except:
-                    pass
-
-            # Check if they have the role to be removed/swapped
-            # The user said: "remove a role and give people another role... based on whether or not the account joined prior to may 2024"
-            # It implies we only act on people who *have* the role to be removed? 
-            # OR does it mean "for everyone, ensure they have the right role"?
-            # "allow an admin to remove a role and give people another role automatically"
-            # I will assume we only process members who HAVE the `remove_role_id`. 
-            # If `remove_role_id` is 0 or something, maybe they want to check everyone? 
-            # I'll stick to acting on members who have the role to be removed, as implied by "remove a role".
-            
-            member_role_ids = [r.id for r in member.roles]
-            
-            if remove_role_id in member_role_ids:
-                try:
-                    # Remove old role
-                    if remove_role:
-                        await member.remove_roles(remove_role)
-                        count_removed += 1
-                    
-                    # Add new role based on join date
-                    if member.joined_at < cutoff_date:
-                        await member.add_roles(pre_may_role)
-                        count_pre += 1
-                    else:
-                        await member.add_roles(post_may_role)
-                        count_post += 1
-                        
-                except Exception as e:
-                    print(f"Error processing {member.name}: {e}")
-        
-        await status_msg.edit(content=f"**Role Migration Complete**\n"
-                                      f"Checked {len(guild.members)} members.\n"
-                                      f"Removed Old Role from: {count_removed} members\n"
-                                      f"Assigned Pre-May Role: {count_pre}\n"
-                                      f"Assigned Post-May Role: {count_post}")
 
