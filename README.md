@@ -45,6 +45,7 @@ Manages role assignments, self-service roles, and bulk migrations.
 | :--- | :--- | :--- |
 | `!setup_reaction` | **Admin** | Creates a reaction role message.<br>**Usage:** `!setup_reaction #channel "Title" <Emoji> @Role` |
 | `!fix_roles` | **Admin** | **Advanced:** Migrates users from one role to another based on join date.<br>**Usage:** `!fix_roles @OldRole @Pre2024Role @Post2024Role` |
+| `!migrate_alumni` | **Admin** | **Alumni Migration:** Assigns Alumni/Member roles based on May 1st 2024 cutoff.<br>**Usage:** `!migrate_alumni @Alumni @Member [@OldToRemove]` |
 
 ---
 
