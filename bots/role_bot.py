@@ -123,7 +123,14 @@ class RoleBot(discord.Client):
 
         # Command: !migrate_alumni @Alumni @Member [Optional:@OldMsg]
         if message.content.startswith('!migrate_alumni'):
-             await self.chat_command_migrate_alumni(message)
+             print(f"DEBUG: RoleBot received !migrate_alumni command from {message.author}")
+             try:
+                 await self.chat_command_migrate_alumni(message)
+             except Exception as e:
+                 print(f"CRITICAL ERROR in !migrate_alumni dispatch: {e}")
+                 import traceback
+                 traceback.print_exc()
+                 await message.reply(f"❌ Critical Error: {e}")
 
     async def chat_command_migrate_alumni(self, message):
         """
