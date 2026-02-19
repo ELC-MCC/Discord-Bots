@@ -64,16 +64,25 @@ class WelcomeBot(discord.Client):
 
         # Auto-Role: Assign "Member" role
         member_role_id = os.getenv('MEMBER_ROLE_ID')
+        print(f"DEBUG: WelcomeBot Auto-Role ID: {member_role_id}")
+        
         if member_role_id:
             try:
                 role = guild.get_role(int(member_role_id))
                 if role:
-                    await member.add_roles(role)
-                    print(f"Auto-Assigned role '{role.name}' to {member.name}")
+                    try:
+                        await member.add_roles(role)
+                        print(f"Auto-Assigned role '{role.name}' to {member.name}")
+                    except discord.Forbidden:
+                        print(f"ERROR: Missing Permissions to assign role {role.name}. Check Bot Role Position!")
+                    except Exception as e:
+                       print(f"ERROR: Failed to assign member role to {member.name}: {e}")
                 else:
                     print(f"Error: Role ID {member_role_id} not found in guild.")
             except Exception as e:
-                print(f"Failed to assign member role: {e}")
+                print(f"Failed to process role ID: {e}")
+        else:
+             print("DEBUG: MEMBER_ROLE_ID not set in .env")
         
         # Try to find the specific channel by ID
         target_channel_id = int(os.getenv('WELCOME_CHANNEL_ID', '0'))

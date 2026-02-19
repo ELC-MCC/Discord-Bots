@@ -255,16 +255,27 @@ class RoleBot(discord.Client):
             await self.assign_auto_role(after)
 
     async def assign_auto_role(self, member):
-        if bot_config.AUTO_JOIN_ROLE_ID:
-            role = member.guild.get_role(bot_config.AUTO_JOIN_ROLE_ID)
-            if role:
-                try:
-                    await member.add_roles(role)
-                    print(f"Auto-assigned role {role.name} to {member.name}")
-                except Exception as e:
-                    print(f"Failed to auto-assign role to {member.name}: {e}")
-            else:
-                print(f"Auto-join role ID {bot_config.AUTO_JOIN_ROLE_ID} not found.")
+        role_id = bot_config.AUTO_JOIN_ROLE_ID
+        print(f"DEBUG: assign_auto_role called for {member.name}. Configured Role ID: {role_id}")
+        
+        if not role_id:
+            print("DEBUG: AUTO_JOIN_ROLE_ID is not set (None or 0). Skpping.")
+            return
+
+        role = member.guild.get_role(role_id)
+        if role:
+            try:
+                await member.add_roles(role)
+                print(f"Auto-assigned role {role.name} to {member.name}")
+            except discord.Forbidden:
+                print(f"ERROR: Missing Permissions to assign role {role.name}. Check Bot Role Position!")
+            except Exception as e:
+                print(f"ERROR: Failed to auto-assign role to {member.name}: {e}")
+        else:
+            print(f"ERROR: Auto-join role ID {role_id} not found in guild {member.guild.name}.")
+            # List available roles for debug
+            roles = [f"{r.name}:{r.id}" for r in member.guild.roles]
+            print(f"DEBUG: Available Roles: {', '.join(roles)}")
 
     async def chat_command_fix_roles(self, message):
          # Command: !fix_roles <remove_role_id> <pre_may_role_id> <post_may_role_id>
