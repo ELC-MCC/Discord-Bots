@@ -146,6 +146,11 @@ class RoleBot(discord.Client):
         member_role = message.role_mentions[1]
         remove_role = message.role_mentions[2] if len(message.role_mentions) > 2 else None
 
+        print(f"DEBUG: Migration Args Parsed:")
+        print(f"  Alumni Role: {alumni_role.name} (ID: {alumni_role.id})")
+        print(f"  Member Role: {member_role.name} (ID: {member_role.id})")
+        print(f"  Cutoff Date: {datetime(2024, 5, 1, tzinfo=timezone.utc)}")
+
         # 3. Setup Migration Variables
         guild = message.guild
         from datetime import datetime, timezone
@@ -194,6 +199,9 @@ class RoleBot(discord.Client):
                         continue
 
                     is_alumni = member.joined_at < cutoff_date
+                    
+                    # LOGGING EVERY DECISION
+                    print(f"DEBUG: {member.name} | Joined: {member.joined_at} | Cutoff: {cutoff_date} | IsAlumni ({member.joined_at} < {cutoff_date}): {is_alumni}")
 
                     # ACTION 1: Assign New Role
                     if is_alumni:
