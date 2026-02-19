@@ -27,15 +27,30 @@ class WelcomeBot(discord.Client):
         Event triggered when a new member joins the server.
         Sends a welcome message to a specific channel.
         """
+        # If pending verification (Onboarding), wait.
+        if member.pending:
+            print(f"WelcomeBot: {member.name} is pending verification. Waiting...")
+            return
+
+        await self.send_welcome(member)
+
+    async def on_member_update(self, before, after):
+        """Handle member update events, specifically regarding verification."""
+        # Check if member completed verification (pending: True -> False)
+        if before.pending and not after.pending:
+            print(f"WelcomeBot: {after.name} completed verification.")
+            await self.send_welcome(after)
+
+    async def send_welcome(self, member):
         # Debounce check: Ignore if welcomed in the last 10 seconds
         current_time = time.time()
         if member.id in self.last_welcome_time and (current_time - self.last_welcome_time[member.id] < 10):
-            print(f"Ignored duplicate on_member_join event for {member.name} (ID: {member.id})")
+            print(f"Ignored duplicate welcome event for {member.name} (ID: {member.id})")
             return
         
         self.last_welcome_time[member.id] = current_time
         
-        print(f"Member joined: {member.name} (ID: {member.id})")
+        print(f"Welcoming member: {member.name} (ID: {member.id})")
         
         guild = member.guild
 
