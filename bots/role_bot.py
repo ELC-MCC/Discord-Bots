@@ -215,21 +215,35 @@ class RoleBot(discord.Client):
 
                     import asyncio
                     
-                    # ACTION 1: Assign New Role
                     if is_alumni:
-                        # Give Alumni Role if they don't have it
+                        # 1. Give Alumni Role if they don't have it
                         if alumni_role not in member.roles:
                             await member.add_roles(alumni_role)
                             stats["alumni_added"] += 1
-                            print(f"[Migration] {member.name} -> Alumni")
-                            await asyncio.sleep(1) # Rate limit protection
+                            print(f"[Migration] {member.name} -> Added Alumni")
+                            await asyncio.sleep(1) 
+                        
+                        # 2. REMOVE Member Role if they have it (Strict Separation)
+                        if member_role in member.roles:
+                            await member.remove_roles(member_role)
+                            stats["roles_removed"] += 1
+                            print(f"[Migration] {member.name} -> Removed Member (Should be Alumni)")
+                            await asyncio.sleep(1)
+
                     else:
-                        # Give Member Role if they don't have it
+                        # 1. Give Member Role if they don't have it
                         if member_role not in member.roles:
                             await member.add_roles(member_role)
                             stats["members_added"] += 1
-                            print(f"[Migration] {member.name} -> Member")
-                            await asyncio.sleep(1) # Rate limit protection
+                            print(f"[Migration] {member.name} -> Added Member")
+                            await asyncio.sleep(1)
+                        
+                        # 2. REMOVE Alumni Role if they have it (Strict Separation)
+                        if alumni_role in member.roles:
+                            await member.remove_roles(alumni_role)
+                            stats["roles_removed"] += 1
+                            print(f"[Migration] {member.name} -> Removed Alumni (Should be Member)")
+                            await asyncio.sleep(1)
 
                     # ACTION 2: Remove Old Role (if specified and present)
                     if remove_role and remove_role in member.roles:
