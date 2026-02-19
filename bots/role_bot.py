@@ -256,7 +256,18 @@ class RoleBot(discord.Client):
 
     async def assign_auto_role(self, member):
         role_id = bot_config.AUTO_JOIN_ROLE_ID
-        print(f"DEBUG: assign_auto_role called for {member.name}. Configured Role ID: {role_id}")
+        
+        # Fallback to .env MEMBER_ROLE_ID (used by WelcomeBot) if config is 0
+        if not role_id:
+             env_role_id = os.getenv('MEMBER_ROLE_ID')
+             if env_role_id:
+                 try:
+                     role_id = int(env_role_id)
+                     print(f"DEBUG: Using MEMBER_ROLE_ID from .env: {role_id}")
+                 except ValueError:
+                     print(f"ERROR: MEMBER_ROLE_ID in .env is not a valid integer: {env_role_id}")
+
+        print(f"DEBUG: assign_auto_role called for {member.name}. Final Role ID: {role_id}")
         
         if not role_id:
             print("DEBUG: AUTO_JOIN_ROLE_ID is not set (None or 0). Skpping.")
