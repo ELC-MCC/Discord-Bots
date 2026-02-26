@@ -340,7 +340,8 @@ class FilamentBot(discord.Client):
         stats_text = (
             f"Daily Used: {stats['daily']}g\n"
             f"Weekly Used: {stats['weekly']}g\n"
-            f"Monthly Used: {stats['monthly']}g"
+            f"Monthly Used: {stats['monthly']}g\n"
+            f"Total Used: {stats['total']}g"
         )
         embed.add_field(name="Consumption Stats", value=stats_text, inline=False)
         

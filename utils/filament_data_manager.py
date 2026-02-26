@@ -131,7 +131,8 @@ class FilamentDataManager:
         stats = {
             "daily": 0.0,
             "weekly": 0.0,
-            "monthly": 0.0
+            "monthly": 0.0,
+            "total": 0.0
         }
 
         for log in self.logs:
@@ -139,6 +140,8 @@ class FilamentDataManager:
                 amt = float(log.get('amount_used', 0))
             except (ValueError, TypeError):
                 continue
+
+            stats["total"] += amt
 
             ts_str = log.get('timestamp', '')
             try:
