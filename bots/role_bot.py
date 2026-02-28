@@ -124,7 +124,13 @@ class ReactionSetupModal(discord.ui.Modal, title="Reaction Roles Setup"):
         embed.set_footer(text=bot_config.ROLE_BOT_FOOTER)
 
         try:
-            sent_msg = await self.channel.send(embed=embed)
+            # Re-fetch the channel as a TextChannel object since ChannelSelect returns an AppCommandChannel
+            target_channel = guild.get_channel(self.channel.id)
+            if not target_channel:
+                 await interaction.response.send_message(f"Error: Could not resolve channel.", ephemeral=True)
+                 return
+                 
+            sent_msg = await target_channel.send(embed=embed)
             await interaction.response.send_message(f"Reaction Role message created in {self.channel.mention}", ephemeral=True)
 
             for emoji in emojis_to_add:
