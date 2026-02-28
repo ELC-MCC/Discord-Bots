@@ -113,7 +113,7 @@ class ReactionSetupModal(discord.ui.Modal, title="Reaction Roles Setup"):
                  await interaction.response.send_message(f'Error: Could not find role "{role_str}" in this server.', ephemeral=True)
                  return
                  
-            description += f"{emoji} : {role.mention}\n"
+            description += f"{emoji} : {role.mention}\n\n"
             emojis_to_add.append(emoji)
         
         embed = discord.Embed(
