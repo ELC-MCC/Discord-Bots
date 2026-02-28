@@ -133,9 +133,11 @@ class ReactionSetupModal(discord.ui.Modal, title="Reaction Roles Setup"):
             sent_msg = await target_channel.send(embed=embed)
             await interaction.response.send_message(f"Reaction Role message created in {self.channel.mention}", ephemeral=True)
 
+            import asyncio
             for emoji in emojis_to_add:
                 try:
                     await sent_msg.add_reaction(emoji)
+                    await asyncio.sleep(0.5) # throttle to prevent rate limiting
                 except Exception as e:
                      print(f"Failed to add reaction {emoji}: {e}")
         except discord.Forbidden:
