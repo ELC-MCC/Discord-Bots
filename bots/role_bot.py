@@ -72,21 +72,48 @@ class ReactionSetupModal(discord.ui.Modal, title="Reaction Roles Setup"):
         self.channel = channel
 
     async def on_submit(self, interaction: discord.Interaction):
-        # reuse existing logic from on_message basically
         # 4. Find Emoji-Role Pairs
-        import re
-        pair_pattern = r'(\S+)\s+(<@&\d+>)'
-        matches = re.findall(pair_pattern, self.pairs_input.value)
+        matches = []
+        lines = self.pairs_input.value.strip().split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            
+            # Extract emoji (first token) and role name (the rest)
+            parts = line.split(maxsplit=1)
+            if len(parts) >= 2:
+                matches.append((parts[0], parts[1].strip()))
 
         if not matches:
-             await interaction.response.send_message('Error: No valid Emoji-Role pairs found. Format: emoji @role', ephemeral=True)
+             await interaction.response.send_message('Error: No valid Emoji-Role pairs found. Format: <emoji> <@role / Role ID / Role Name>', ephemeral=True)
              return
         
         description = ""
         emojis_to_add = []
+        guild = interaction.guild
         
-        for emoji, role_mention in matches:
-            description += f"{emoji} : {role_mention}\n"
+        for emoji, role_str in matches:
+            role = None
+            role_str_clean = role_str.strip()
+            
+            # Try raw mention format <@&123456789>
+            import re
+            mention_match = re.search(r'<@&(\d+)>', role_str_clean)
+            if mention_match:
+                role = guild.get_role(int(mention_match.group(1)))
+            # Try Role ID format 123456789
+            elif role_str_clean.isdigit():
+                role = guild.get_role(int(role_str_clean))
+            # Try Role Name format "American Sign Language" or "@American Sign Language"
+            else:
+                name_to_search = role_str_clean[1:].strip().lower() if role_str_clean.startswith('@') else role_str_clean.lower()
+                role = discord.utils.find(lambda r: r.name.lower() == name_to_search, guild.roles)
+
+            if not role:
+                 await interaction.response.send_message(f'Error: Could not find role "{role_str}" in this server.', ephemeral=True)
+                 return
+                 
+            description += f"{emoji} : {role.mention}\n"
             emojis_to_add.append(emoji)
         
         embed = discord.Embed(
