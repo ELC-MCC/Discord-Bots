@@ -48,17 +48,20 @@ class EventModal(ui.Modal, title="Add New Event"):
             
             if msg.attachments:
                 image_url = msg.attachments[0].url
-                await interaction.followup.send("Image received!", ephemeral=True)
+                await interaction.followup.send("Image received! (Message kept to preserve image link)", ephemeral=True)
             elif msg.content.lower().strip() == 'skip':
                 await interaction.followup.send("Skipping image upload.", ephemeral=True)
+                # Try to delete the 'skip' message to keep chat clean
+                try:
+                    await msg.delete()
+                except:
+                    pass
             else:
                 await interaction.followup.send("No image found in message. Proceeding without image.", ephemeral=True)
-            
-            # Try to delete the user's message to keep chat clean (if possible)
-            try:
-                await msg.delete()
-            except:
-                pass
+                try:
+                    await msg.delete()
+                except:
+                    pass
 
         except asyncio.TimeoutError:
             await interaction.followup.send("Timed out waiting for image. Event created without one.", ephemeral=True)
