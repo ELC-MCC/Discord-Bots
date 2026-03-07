@@ -45,7 +45,24 @@ class FilamentDataManager:
     def get_logs(self):
          # Reload to ensure fresh data
         self.logs = self.load_json(self.logs_file)
+        self._ensure_log_ids()
         return self.logs
+
+    def _ensure_log_ids(self):
+        modified = False
+        max_id = 0
+        for log in self.logs:
+            if 'id' in log:
+                max_id = max(max_id, log['id'])
+        
+        for log in self.logs:
+            if 'id' not in log:
+                max_id += 1
+                log['id'] = max_id
+                modified = True
+        
+        if modified:
+            self.save_json(self.logs_file, self.logs)
 
     def update_filament_weight(self, filament_id, amount_used):
         """Reduces the weight of a filament by amount_used."""
@@ -108,7 +125,14 @@ class FilamentDataManager:
         filament_details = next((item for item in self.inventory if item['id'] == filament_id), None)
         filament_str = f"{filament_details['color']} {filament_details['type']}" if filament_details else "Unknown"
 
+        self.logs = self.load_json(self.logs_file)
+        self._ensure_log_ids()
+        new_id = 1
+        if self.logs:
+            new_id = max(log.get('id', 0) for log in self.logs) + 1
+
         log_entry = {
+            "id": new_id,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "user": user_name,
             "filament_id": filament_id,
@@ -116,7 +140,6 @@ class FilamentDataManager:
             "amount_used": amount_used
         }
         
-        self.logs = self.load_json(self.logs_file)
         self.logs.append(log_entry)
         self.save_json(self.logs_file, self.logs)
 
@@ -189,3 +212,56 @@ class FilamentDataManager:
             csv_content += f'"{ts}","{user}","{filament}",{amount}\n'
             
         return csv_content
+
+    def update_log(self, log_id, new_user, new_amount):
+        """Updates an existing log and adjusts inventory."""
+        self.logs = self.load_json(self.logs_file)
+        self.inventory = self.load_json(self.inventory_file)
+        
+        log_to_edit = next((log for log in self.logs if log.get('id') == log_id), None)
+        if not log_to_edit:
+            return False
+            
+        old_amount = float(log_to_edit.get('amount_used', 0))
+        new_amount = float(new_amount)
+        difference = new_amount - old_amount
+        
+        # Adjust inventory
+        filament_id = log_to_edit.get('filament_id')
+        for item in self.inventory:
+            if item['id'] == filament_id:
+                item['weight_g'] = round(item.get('weight_g', 0) - difference, 2)
+                break
+                
+        self.save_json(self.inventory_file, self.inventory)
+        
+        log_to_edit['amount_used'] = new_amount
+        if new_user:
+            log_to_edit['user'] = new_user
+        
+        self.save_json(self.logs_file, self.logs)
+        return True
+
+    def delete_log(self, log_id):
+        """Deletes a log and refunds the inventory."""
+        self.logs = self.load_json(self.logs_file)
+        self.inventory = self.load_json(self.inventory_file)
+        
+        log_to_delete = next((log for log in self.logs if log.get('id') == log_id), None)
+        if not log_to_delete:
+            return False
+            
+        # Refund inventory
+        filament_id = log_to_delete.get('filament_id')
+        amount_used = float(log_to_delete.get('amount_used', 0))
+        
+        for item in self.inventory:
+            if item['id'] == filament_id:
+                item['weight_g'] = round(item.get('weight_g', 0) + amount_used, 2)
+                break
+                
+        self.save_json(self.inventory_file, self.inventory)
+        
+        self.logs = [log for log in self.logs if log.get('id') != log_id]
+        self.save_json(self.logs_file, self.logs)
+        return True

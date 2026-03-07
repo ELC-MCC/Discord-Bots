@@ -135,6 +135,39 @@ class EditFilamentModal(ui.Modal, title="Edit Filament Details"):
         except Exception as e:
             await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
+class EditLogModal(ui.Modal, title="Edit Log"):
+    user_name = ui.TextInput(label="User Name", max_length=100)
+    amount = ui.TextInput(label="Amount Used (g)", max_length=10)
+
+    def __init__(self, bot, log_id, current_data):
+        super().__init__()
+        self.bot = bot
+        self.log_id = log_id
+        
+        # Pre-fill values
+        self.user_name.default = current_data.get('user', '')
+        self.amount.default = str(current_data.get('amount_used', 0))
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            new_amount = float(self.amount.value)
+            success = self.bot.data_manager.update_log(
+                self.log_id,
+                new_user=self.user_name.value,
+                new_amount=new_amount
+            )
+            
+            if success:
+                await interaction.response.send_message(f"✅ Updated log **{self.log_id}**.", ephemeral=True)
+                await self.bot.update_dashboards()
+            else:
+                await interaction.response.send_message("❌ Failed to update log.", ephemeral=True)
+
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid amount format.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
 # --- Select Menus ---
 class FilamentSelect(ui.Select):
     def __init__(self, bot):
@@ -236,6 +269,64 @@ class DeleteFilamentSelect(ui.Select):
         else:
             await interaction.response.send_message("❌ Filament not found!", ephemeral=True)
 
+class EditLogSelect(ui.Select):
+    def __init__(self, bot):
+        self.bot = bot
+        options = []
+        logs = self.bot.data_manager.get_logs()
+        recent_logs = sorted(logs, key=lambda x: x.get('id', 0), reverse=True)[:25]
+        
+        for item in recent_logs:
+            lbl = f"{item['user']} - {item.get('filament_desc', 'Unknown')}"
+            if len(lbl) > 100: lbl = lbl[:97] + "..."
+            
+            options.append(discord.SelectOption(
+                label=lbl,
+                description=f"ID: {item.get('id', '?')} | {item.get('amount_used', 0)}g | {item.get('timestamp', '')[:10]}",
+                value=str(item.get('id', 0))
+            ))
+
+        super().__init__(placeholder="Select recent log to edit...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        log_id = int(self.values[0])
+        logs = self.bot.data_manager.get_logs()
+        item = next((x for x in logs if x.get('id') == log_id), None)
+        
+        if item:
+            await interaction.response.send_modal(EditLogModal(self.bot, log_id, item))
+        else:
+            await interaction.response.send_message("❌ Log not found!", ephemeral=True)
+
+class DeleteLogSelect(ui.Select):
+    def __init__(self, bot):
+        self.bot = bot
+        options = []
+        logs = self.bot.data_manager.get_logs()
+        recent_logs = sorted(logs, key=lambda x: x.get('id', 0), reverse=True)[:25]
+        
+        for item in recent_logs:
+            lbl = f"{item['user']} - {item.get('filament_desc', 'Unknown')}"
+            if len(lbl) > 100: lbl = lbl[:97] + "..."
+            
+            options.append(discord.SelectOption(
+                label=lbl,
+                description=f"ID: {item.get('id', '?')} | {item.get('amount_used', 0)}g | {item.get('timestamp', '')[:10]}",
+                value=str(item.get('id', 0)),
+                emoji="🗑️"
+            ))
+
+        super().__init__(placeholder="Select recent log to delete...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        log_id = int(self.values[0])
+        success = self.bot.data_manager.delete_log(log_id)
+        if success:
+            await interaction.response.send_message(f"🗑️ **Deleted Log** (ID: {log_id}). Restored inventory.", ephemeral=True)
+            await self.bot.update_dashboards()
+        else:
+            await interaction.response.send_message("❌ Failed to delete log.", ephemeral=True)
+
 # --- Public Dashboard View ---
 class PublicDashboardView(ui.View):
     def __init__(self, bot):
@@ -291,6 +382,26 @@ class AdminDashboardView(ui.View):
         file = discord.File(io.StringIO(csv_data), filename="filament_logs_export.csv")
         
         await interaction.response.send_message("📊 Here is the latest usage log:", file=file, ephemeral=True)
+
+    @ui.button(label="Edit Log", style=discord.ButtonStyle.secondary, custom_id="filament_admin_edit_log", row=1)
+    async def edit_log_btn(self, interaction: discord.Interaction, button: ui.Button):
+        view = ui.View()
+        select = EditLogSelect(self.bot)
+        if not select.options:
+             await interaction.response.send_message("No logs available!", ephemeral=True)
+             return
+        view.add_item(select)
+        await interaction.response.send_message("Select a recent log to edit:", view=view, ephemeral=True)
+
+    @ui.button(label="Delete Log", style=discord.ButtonStyle.danger, custom_id="filament_admin_delete_log", row=1)
+    async def delete_log_btn(self, interaction: discord.Interaction, button: ui.Button):
+        view = ui.View()
+        select = DeleteLogSelect(self.bot)
+        if not select.options:
+             await interaction.response.send_message("No logs available!", ephemeral=True)
+             return
+        view.add_item(select)
+        await interaction.response.send_message("Select a recent log to delete:", view=view, ephemeral=True)
 
 # --- Main Bot Class ---
 class FilamentBot(discord.Client):
