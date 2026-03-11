@@ -444,9 +444,10 @@ class EventBot(discord.Client):
             return ["st", "nd", "rd"][day % 10 - 1]
 
     def get_upcoming_embeds(self) -> List[discord.Embed]:
-        # Filter for future events
         now = datetime.now()
-        future_events = []
+        future_regular = []
+        future_recurring = []
+        
         for event in self.events:
             if event.get("type") == "recurring":
                 try:
@@ -466,71 +467,73 @@ class EventBot(discord.Client):
                     if days_ahead == 0 and next_dt <= now:
                         next_dt += timedelta(days=7)
                         
-                    future_events.append((next_dt, event))
+                    future_recurring.append((next_dt, event))
                 except Exception:
                     continue
             else:
                 try:
                     event_time = datetime.strptime(event['time'], "%Y-%m-%d %H:%M")
                     if event_time > now:
-                        future_events.append((event_time, event))
+                        future_regular.append((event_time, event))
                 except ValueError:
                     continue
         
-        # Sort by time and take top 3
-        future_events.sort(key=lambda x: x[0])
-        next_events = future_events[:3]
+        # Sort both
+        future_regular.sort(key=lambda x: x[0])
+        future_recurring.sort(key=lambda x: x[0])
+        
+        next_regular = future_regular[:3]
+        next_recurring = future_recurring[:3]
 
         embeds = []
         
-        if not next_events:
+        if not next_regular and not next_recurring:
             embed = discord.Embed(
                 title="Upcoming Events",
-                description="No upcoming events scheduled.",
+                description="No events scheduled.",
                 color=0x95A5A6
             )
+            embed.set_footer(text=bot_config.EVENT_BOT_FOOTER)
+            embed.timestamp = now
             embeds.append(embed)
             return embeds
-        
-        # Header Embed
-        header = discord.Embed(
-            title="Upcoming Events",
-            description="Here is what is coming up next:",
-            color=0x2C3E50
-        )
-        embeds.append(header)
 
-        for dt, event in next_events:
-            # Format: February 5th, 2026
-            day = dt.day
-            suffix = self.get_date_suffix(day)
-            date_str = dt.strftime(f"%B {day}{suffix}, %Y")
-            time_str = dt.strftime("%I:%M %p") # 5:00 PM
-
-            title = f"🔁 {event['name']}" if event.get("type") == "recurring" else event['name']
-            embed = discord.Embed(
-                title=title,
-                color=0x9B59B6 if event.get("type") == "recurring" else 0x3498DB
+        if next_regular:
+            header_reg = discord.Embed(
+                title="📅 Upcoming Special Events",
+                color=0x2C3E50
             )
-            
-            freq_str = f"**Every {event.get('day_of_week')}** at **{time_str}**" if event.get("type") == "recurring" else f"**{date_str}** at **{time_str}**"
-            description_text = (
-                f"{freq_str}\n"
-                f"Location: **{event.get('location', 'No location')}**\n\n"
-                f"{event.get('description', '')}"
-            )
-            
-            embed.description = description_text
-            
-            if event.get('image_url'):
-                embed.set_image(url=event['image_url'])
-            
-            embeds.append(embed)
+            embeds.append(header_reg)
+            for dt, event in next_regular:
+                day = dt.day
+                suffix = self.get_date_suffix(day)
+                date_str = dt.strftime(f"%B {day}{suffix}, %Y")
+                time_str = dt.strftime("%I:%M %p")
+                
+                embed = discord.Embed(title=event['name'], color=0x3498DB)
+                embed.description = f"**{date_str}** at **{time_str}**\nLocation: **{event.get('location', 'No location')}**\n\n{event.get('description', '')}"
+                if event.get('image_url'):
+                    embed.set_image(url=event['image_url'])
+                embeds.append(embed)
 
-        # Add footer to the last embed
-        embeds[-1].set_footer(text=bot_config.EVENT_BOT_FOOTER)
-        embeds[-1].timestamp = now
-        
+        if next_recurring:
+            header_rec = discord.Embed(
+                title="🔁 Upcoming Recurring Events",
+                color=0x2C3E50
+            )
+            embeds.append(header_rec)
+            for dt, event in next_recurring:
+                time_str = dt.strftime("%I:%M %p")
+                embed = discord.Embed(title=f"🔁 {event['name']}", color=0x9B59B6)
+                embed.description = f"**Every {event.get('day_of_week')}** at **{time_str}**\nLocation: **{event.get('location', 'No location')}**\n\n{event.get('description', '')}"
+                if event.get('image_url'):
+                    embed.set_image(url=event['image_url'])
+                embeds.append(embed)
+
+        if embeds:
+            embeds[-1].set_footer(text=bot_config.EVENT_BOT_FOOTER)
+            embeds[-1].timestamp = now
+            
         return embeds
 
     async def update_upcoming_message(self):
