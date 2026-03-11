@@ -82,6 +82,68 @@ class EventModal(ui.Modal, title="Add New Event"):
         
         print(f"Event added via Modal: {self.name.value}")
 
+class AffiliateEventModal(ui.Modal, title="Add Affiliate Club Meeting"):
+    name = ui.TextInput(label="Event Name", placeholder="Robotics Meeting", max_length=100)
+    date_str = ui.TextInput(label="Date (YYYY-MM-DD)", placeholder="2024-12-25", min_length=10, max_length=10)
+    time_str = ui.TextInput(label="Time (HH:MM)", placeholder="20:00", min_length=5, max_length=5)
+    location = ui.TextInput(label="Location", placeholder="Main Hall", required=True, max_length=100)
+    description = ui.TextInput(label="Description", style=discord.TextStyle.paragraph, placeholder="General Body Meeting...", required=False, max_length=1000)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        full_time_str = f"{self.date_str.value} {self.time_str.value}"
+        try:
+            datetime.strptime(full_time_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            await interaction.response.send_message(
+                "Error: Invalid Date/Time Format. Use YYYY-MM-DD for date and HH:MM (24-hour) for time.", 
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            f"Affiliate Event details for **{self.name.value}** recorded.\n"
+            "**Please upload an image for the event now.**\n"
+            "*(Reply with an image attachment, or type `skip` to proceed without one)*",
+            ephemeral=True
+        )
+
+        bot: 'EventBot' = interaction.client
+        
+        def check(m):
+            return m.author == interaction.user and m.channel == interaction.channel
+
+        image_url = None
+        try:
+            msg = await bot.wait_for('message', check=check, timeout=60.0)
+            if msg.attachments:
+                image_url = msg.attachments[0].url
+                await interaction.followup.send("Image received!", ephemeral=True)
+            elif msg.content.lower().strip() == 'skip':
+                await interaction.followup.send("Skipping image upload.", ephemeral=True)
+                try: await msg.delete()
+                except: pass
+            else:
+                await interaction.followup.send("No image found. Proceeding without.", ephemeral=True)
+                try: await msg.delete()
+                except: pass
+        except asyncio.TimeoutError:
+            await interaction.followup.send("Timed out waiting for image. Event created without one.", ephemeral=True)
+
+        new_event = {
+            "type": "affiliate",
+            "name": self.name.value,
+            "time": full_time_str,
+            "location": self.location.value,
+            "description": self.description.value,
+            "image_url": image_url,
+            "created_by": interaction.user.id
+        }
+
+        bot.events.append(new_event)
+        bot.save_events()
+        
+        print(f"Affiliate Event added via Modal: {self.name.value}")
+
 class RecurringEventModal(ui.Modal, title="Add Recurring Event"):
     name = ui.TextInput(label="Event Name", placeholder="Weekly Meeting", max_length=100)
     day_of_week = ui.TextInput(label="Day of Week", placeholder="Monday", max_length=10)
@@ -162,6 +224,8 @@ class DeleteEventSelect(ui.Select):
             
             if event.get("type") == "recurring":
                 label = f"Every {event.get('day_of_week')} {event['time']} - {event['name']}"
+            elif event.get("type") == "affiliate":
+                label = f"[Affiliate] {event['time']} - {event['name']}"
             else:
                 label = f"{event['time']} - {event['name']}"
                 
@@ -244,7 +308,13 @@ class CalendarView(ui.View):
             for _, dt, event in month_events:
                 day_str = dt.strftime("%b %d")
                 time_str = dt.strftime("%I:%M %p")
-                prefix = "🔁 " if event.get("type") == "recurring" else ""
+                
+                prefix = ""
+                if event.get("type") == "recurring":
+                    prefix = "🔁 "
+                elif event.get("type") == "affiliate":
+                    prefix = "🤝 "
+                    
                 description += f"• **{day_str}** at {time_str}: **{prefix}{event['name']}**\n"
             
             embed.description = description
@@ -303,12 +373,16 @@ class CalendarView(ui.View):
                         )
                     else:
                         dt = datetime.strptime(ev['time'], "%Y-%m-%d %H:%M")
+                        
+                        title_prefix = "🤝 " if ev.get("type") == "affiliate" else ""
+                        color = 0xF1C40F if ev.get("type") == "affiliate" else 0x2ECC71
+                        
                         detail_embed = discord.Embed(
-                            title=ev['name'],
+                            title=f"{title_prefix}{ev['name']}",
                             description=f"**{dt.strftime('%A, %B %d, %Y')}** at **{dt.strftime('%I:%M %p')}**\n"
                                         f"Location: **{ev.get('location', 'No location')}**\n\n"
                                         f"{ev.get('description', '')}",
-                            color=0x2ECC71
+                            color=color
                         )
                     if ev.get('image_url'):
                         detail_embed.set_image(url=ev['image_url'])
@@ -342,6 +416,10 @@ class EventAdminView(ui.View):
     @ui.button(label="Add Recurring", style=discord.ButtonStyle.secondary, custom_id="event_admin_add_rec")
     async def add_recurring(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(RecurringEventModal())
+
+    @ui.button(label="Add Affiliate", style=discord.ButtonStyle.primary, custom_id="event_admin_add_aff")
+    async def add_affiliate(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(AffiliateEventModal())
 
     @ui.button(label="Delete Event", style=discord.ButtonStyle.red, custom_id="event_admin_del")
     async def delete_event(self, interaction: discord.Interaction, button: ui.Button):
@@ -445,8 +523,9 @@ class EventBot(discord.Client):
 
     def get_upcoming_embeds(self) -> List[discord.Embed]:
         now = datetime.now()
-        future_regular = []
-        future_recurring = []
+        future_elc = []
+        future_proj = []
+        future_aff = []
         
         for event in self.events:
             if event.get("type") == "recurring":
@@ -467,27 +546,36 @@ class EventBot(discord.Client):
                     if days_ahead == 0 and next_dt <= now:
                         next_dt += timedelta(days=7)
                         
-                    future_recurring.append((next_dt, event))
+                    future_proj.append((next_dt, event))
                 except Exception:
+                    continue
+            elif event.get("type") == "affiliate":
+                try:
+                    event_time = datetime.strptime(event['time'], "%Y-%m-%d %H:%M")
+                    if event_time > now:
+                        future_aff.append((event_time, event))
+                except ValueError:
                     continue
             else:
                 try:
                     event_time = datetime.strptime(event['time'], "%Y-%m-%d %H:%M")
                     if event_time > now:
-                        future_regular.append((event_time, event))
+                        future_elc.append((event_time, event))
                 except ValueError:
                     continue
         
-        # Sort both
-        future_regular.sort(key=lambda x: x[0])
-        future_recurring.sort(key=lambda x: x[0])
+        # Sort all
+        future_elc.sort(key=lambda x: x[0])
+        future_proj.sort(key=lambda x: x[0])
+        future_aff.sort(key=lambda x: x[0])
         
-        next_regular = future_regular[:3]
-        next_recurring = future_recurring[:3]
+        next_elc = future_elc[:3]
+        next_proj = future_proj[:3]
+        next_aff = future_aff[:3]
 
         embeds = []
         
-        if not next_regular and not next_recurring:
+        if not next_elc and not next_proj and not next_aff:
             embed = discord.Embed(
                 title="Upcoming Events",
                 description="No events scheduled.",
@@ -498,34 +586,52 @@ class EventBot(discord.Client):
             embeds.append(embed)
             return embeds
 
-        if next_regular:
-            header_reg = discord.Embed(
-                title="📅 Upcoming Special Events",
-                color=0x2C3E50
+        if next_elc:
+            header_elc = discord.Embed(
+                title="📅 ELC EVENTS",
+                color=0x3498DB
             )
-            embeds.append(header_reg)
-            for dt, event in next_regular:
+            embeds.append(header_elc)
+            for dt, event in next_elc:
                 day = dt.day
                 suffix = self.get_date_suffix(day)
                 date_str = dt.strftime(f"%B {day}{suffix}, %Y")
                 time_str = dt.strftime("%I:%M %p")
                 
-                embed = discord.Embed(title=event['name'], color=0x3498DB)
+                embed = discord.Embed(title=event['name'], color=0x2ECC71)
                 embed.description = f"**{date_str}** at **{time_str}**\nLocation: **{event.get('location', 'No location')}**\n\n{event.get('description', '')}"
                 if event.get('image_url'):
                     embed.set_image(url=event['image_url'])
                 embeds.append(embed)
 
-        if next_recurring:
-            header_rec = discord.Embed(
-                title="🔁 Upcoming Recurring Events",
-                color=0x2C3E50
+        if next_proj:
+            header_proj = discord.Embed(
+                title="🔁 ELC PROJECTS",
+                color=0x9B59B6
             )
-            embeds.append(header_rec)
-            for dt, event in next_recurring:
+            embeds.append(header_proj)
+            for dt, event in next_proj:
                 time_str = dt.strftime("%I:%M %p")
-                embed = discord.Embed(title=f"🔁 {event['name']}", color=0x9B59B6)
+                embed = discord.Embed(title=f"🔁 {event['name']}", color=0x8E44AD)
                 embed.description = f"**Every {event.get('day_of_week')}** at **{time_str}**\nLocation: **{event.get('location', 'No location')}**\n\n{event.get('description', '')}"
+                if event.get('image_url'):
+                    embed.set_image(url=event['image_url'])
+                embeds.append(embed)
+                
+        if next_aff:
+            header_aff = discord.Embed(
+                title="🤝 AFFILIATE CLUB MEETINGS",
+                color=0xF1C40F
+            )
+            embeds.append(header_aff)
+            for dt, event in next_aff:
+                day = dt.day
+                suffix = self.get_date_suffix(day)
+                date_str = dt.strftime(f"%B {day}{suffix}, %Y")
+                time_str = dt.strftime("%I:%M %p")
+                
+                embed = discord.Embed(title=f"🤝 {event['name']}", color=0xF39C12)
+                embed.description = f"**{date_str}** at **{time_str}**\nLocation: **{event.get('location', 'No location')}**\n\n{event.get('description', '')}"
                 if event.get('image_url'):
                     embed.set_image(url=event['image_url'])
                 embeds.append(embed)
@@ -602,7 +708,7 @@ class EventBot(discord.Client):
                                 embed = discord.Embed(
                                     title=f"Event Starting: {event['name']}",
                                     description=f"Location: **{event.get('location', 'No location')}**\n{event.get('description', '')}",
-                                    color=0x2ECC71,
+                                    color=0xF1C40F if event.get("type") == "affiliate" else 0x2ECC71,
                                     timestamp=now
                                 )
                                 if event.get('image_url'):
