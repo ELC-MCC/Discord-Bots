@@ -438,7 +438,7 @@ class UpcomingChannelSelect(ui.View):
         super().__init__(timeout=60)
         self.bot = bot
 
-    @ui.select(cls=ui.ChannelSelect, channel_types=[discord.ChannelType.text], placeholder="Select a channel...")
+    @ui.select(cls=ui.ChannelSelect, channel_types=[discord.ChannelType.text, discord.ChannelType.news], placeholder="Select a channel...")
     async def select_channel(self, interaction: discord.Interaction, select: ui.ChannelSelect):
         channel = select.values[0]
         
