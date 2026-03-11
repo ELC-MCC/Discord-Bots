@@ -3,6 +3,7 @@ from discord import ui
 import json
 import os
 import asyncio
+import calendar
 from datetime import datetime
 from typing import List, Dict, Optional
 import bot_config
@@ -128,6 +129,115 @@ class DeleteEventView(ui.View):
         super().__init__()
         self.add_item(DeleteEventSelect(events, bot))
 
+class CalendarView(ui.View):
+    def __init__(self, bot: 'EventBot', year: int, month: int):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.year = year
+        self.month = month
+        self.build_view()
+
+    def get_month_events(self):
+        month_events = []
+        for i, event in enumerate(self.bot.events):
+            try:
+                dt = datetime.strptime(event['time'], "%Y-%m-%d %H:%M")
+                if dt.year == self.year and dt.month == self.month:
+                    month_events.append((i, dt, event))
+            except ValueError:
+                pass
+        month_events.sort(key=lambda x: x[1])
+        return month_events
+
+    def get_embed(self) -> discord.Embed:
+        month_name = calendar.month_name[self.month]
+        embed = discord.Embed(title=f"🗓️ Events Calendar - {month_name} {self.year}", color=0x3498DB)
+        
+        month_events = self.get_month_events()
+        
+        if not month_events:
+            embed.description = "No events scheduled for this month."
+        else:
+            description = ""
+            for _, dt, event in month_events:
+                day_str = dt.strftime("%b %d")
+                time_str = dt.strftime("%I:%M %p")
+                description += f"• **{day_str}** at {time_str}: **{event['name']}**\n"
+            
+            embed.description = description
+            
+        return embed
+
+    def build_view(self):
+        self.clear_items()
+        
+        # Prev / Next
+        prev_btn = ui.Button(label="◀️ Prev Month", style=discord.ButtonStyle.secondary)
+        async def prev_callback(inter: discord.Interaction):
+            self.month -= 1
+            if self.month < 1:
+                self.month = 12
+                self.year -= 1
+            self.build_view()
+            await inter.response.edit_message(embed=self.get_embed(), view=self)
+        prev_btn.callback = prev_callback
+        self.add_item(prev_btn)
+        
+        next_btn = ui.Button(label="Next Month ▶️", style=discord.ButtonStyle.secondary)
+        async def next_callback(inter: discord.Interaction):
+            self.month += 1
+            if self.month > 12:
+                self.month = 1
+                self.year += 1
+            self.build_view()
+            await inter.response.edit_message(embed=self.get_embed(), view=self)
+        next_btn.callback = next_callback
+        self.add_item(next_btn)
+
+        # Select Menu
+        month_events = self.get_month_events()
+        if month_events:
+            options = []
+            for i, dt, event in month_events:
+                label = f"{dt.strftime('%b %d')} - {event['name']}"
+                if len(label) > 100: label = label[:97] + "..."
+                options.append(discord.SelectOption(label=label, value=str(i)))
+                if len(options) >= 25: break
+                
+            select = ui.Select(placeholder="Select an event for details...", options=options)
+            
+            async def select_callback(inter: discord.Interaction):
+                event_idx = int(select.values[0])
+                if 0 <= event_idx < len(self.bot.events):
+                    ev = self.bot.events[event_idx]
+                    dt = datetime.strptime(ev['time'], "%Y-%m-%d %H:%M")
+                    detail_embed = discord.Embed(
+                        title=ev['name'],
+                        description=f"**{dt.strftime('%A, %B %d, %Y')}** at **{dt.strftime('%I:%M %p')}**\n"
+                                    f"Location: **{ev.get('location', 'No location')}**\n\n"
+                                    f"{ev.get('description', '')}",
+                        color=0x2ECC71
+                    )
+                    if ev.get('image_url'):
+                        detail_embed.set_image(url=ev['image_url'])
+                    await inter.response.send_message(embed=detail_embed, ephemeral=True)
+                else:
+                    await inter.response.send_message("Event not found.", ephemeral=True)
+                    
+            select.callback = select_callback
+            self.add_item(select)
+
+class CalendarLauncher(ui.View):
+    def __init__(self, bot: 'EventBot'):
+        super().__init__(timeout=None)
+        self.bot = bot
+        
+    @ui.button(label="🗓️ Open Interactive Calendar", style=discord.ButtonStyle.primary, custom_id="launch_cal_btn")
+    async def launch_calendar(self, interaction: discord.Interaction, button: ui.Button):
+        now = datetime.now()
+        view = CalendarView(self.bot, now.year, now.month)
+        await interaction.response.send_message(embed=view.get_embed(), view=view, ephemeral=True)
+
 class EventAdminView(ui.View):
     def __init__(self, bot: 'EventBot'):
         super().__init__(timeout=None)
@@ -161,7 +271,7 @@ class UpcomingChannelSelect(ui.View):
         # Send initial message
         embeds = self.bot.get_upcoming_embeds()
         try:
-            msg = await channel.send(embeds=embeds)
+            msg = await channel.send(embeds=embeds, view=CalendarLauncher(self.bot))
             
             # Store ID
             self.bot.data['upcoming_message_id'] = msg.id
@@ -207,6 +317,7 @@ class EventBot(discord.Client):
 
     async def setup_hook(self):
         self.add_view(EventAdminView(self))
+        self.add_view(CalendarLauncher(self))
 
     async def on_ready(self):
         print(f'The Event Loop logged in as {self.user} (ID: {self.user.id})')
@@ -315,7 +426,7 @@ class EventBot(discord.Client):
 
             try:
                 message = await channel.fetch_message(msg_id)
-                await message.edit(embeds=self.get_upcoming_embeds())
+                await message.edit(embeds=self.get_upcoming_embeds(), view=CalendarLauncher(self))
             except discord.NotFound:
                 # Message deleted, clear data
                 self.data['upcoming_message_id'] = None
@@ -415,25 +526,13 @@ class EventBot(discord.Client):
         # Command: !upcoming
         if message.content.startswith('!upcoming'):
             embeds = self.get_upcoming_embeds()
-            await message.channel.send(embeds=embeds)
+            await message.channel.send(embeds=embeds, view=CalendarLauncher(self))
 
-        # Command: !list_events (Lists ALL events)
+        # Command: !list_events (Lists ALL events via Interactive Calendar)
         if message.content.startswith('!list_events'):
-            if not self.events:
-                await message.channel.send("No events found.")
-                return
-
-            sorted_events = sorted(self.events, key=lambda x: x['time'])
-            
-            embed = discord.Embed(title="All Scheduled Events", color=0x3498DB)
-            for event in sorted_events:
-                 location = event.get('location', 'No location')
-                 embed.add_field(
-                    name=f"{event['time']} | {event['name']}",
-                    value=f"Location: {location}",
-                    inline=False
-                 )
-            await message.channel.send(embed=embed)
+            now = datetime.now()
+            view = CalendarView(self, now.year, now.month)
+            await message.channel.send(embed=view.get_embed(), view=view)
 
         # Command: !delete_event (Admin Access)
         if message.content.startswith('!delete_event'):
@@ -473,7 +572,7 @@ class EventBot(discord.Client):
             
              # Send initial message
              embeds = self.get_upcoming_embeds()
-             msg = await message.channel.send(embeds=embeds)
+             msg = await message.channel.send(embeds=embeds, view=CalendarLauncher(self))
              
              # Store ID
              self.data['upcoming_message_id'] = msg.id
