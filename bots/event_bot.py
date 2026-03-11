@@ -401,7 +401,8 @@ class CalendarLauncher(ui.View):
     @ui.button(label="🗓️ Open Interactive Calendar", style=discord.ButtonStyle.primary, custom_id="launch_cal_btn")
     async def launch_calendar(self, interaction: discord.Interaction, button: ui.Button):
         now = datetime.now()
-        view = CalendarView(self.bot, now.year, now.month)
+        bot: 'EventBot' = interaction.client
+        view = CalendarView(bot, now.year, now.month)
         await interaction.response.send_message(embed=view.get_embed(), view=view, ephemeral=True)
 
 class EventAdminView(ui.View):
