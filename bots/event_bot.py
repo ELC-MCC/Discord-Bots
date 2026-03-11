@@ -297,7 +297,7 @@ class CalendarView(ui.View):
 
     def get_embed(self) -> discord.Embed:
         month_name = calendar.month_name[self.month]
-        embed = discord.Embed(title=f"🗓️ Events Calendar - {month_name} {self.year}", color=0x3498DB)
+        embed = discord.Embed(title=f"Events Calendar - {month_name} {self.year}", color=0x3498DB)
         
         month_events = self.get_month_events()
         
@@ -311,9 +311,9 @@ class CalendarView(ui.View):
                 
                 prefix = ""
                 if event.get("type") == "recurring":
-                    prefix = "🔁 "
+                    prefix = "[Recurring] "
                 elif event.get("type") == "affiliate":
-                    prefix = "🤝 "
+                    prefix = "[Affiliate] "
                     
                 description += f"• **{day_str}** at {time_str}: **{prefix}{event['name']}**\n"
             
@@ -325,7 +325,7 @@ class CalendarView(ui.View):
         self.clear_items()
         
         # Prev / Next
-        prev_btn = ui.Button(label="◀️ Prev Month", style=discord.ButtonStyle.secondary)
+        prev_btn = ui.Button(label="Prev Month", style=discord.ButtonStyle.secondary)
         async def prev_callback(inter: discord.Interaction):
             self.month -= 1
             if self.month < 1:
@@ -336,7 +336,7 @@ class CalendarView(ui.View):
         prev_btn.callback = prev_callback
         self.add_item(prev_btn)
         
-        next_btn = ui.Button(label="Next Month ▶️", style=discord.ButtonStyle.secondary)
+        next_btn = ui.Button(label="Next Month", style=discord.ButtonStyle.secondary)
         async def next_callback(inter: discord.Interaction):
             self.month += 1
             if self.month > 12:
@@ -365,7 +365,7 @@ class CalendarView(ui.View):
                     ev = self.bot.events[event_idx]
                     if ev.get("type") == "recurring":
                         detail_embed = discord.Embed(
-                            title=f"🔁 {ev['name']}",
+                            title=f"{ev['name']}",
                             description=f"**Every {ev.get('day_of_week')}** at **{ev.get('time')}**\n"
                                         f"Location: **{ev.get('location', 'No location')}**\n\n"
                                         f"{ev.get('description', '')}",
@@ -374,7 +374,7 @@ class CalendarView(ui.View):
                     else:
                         dt = datetime.strptime(ev['time'], "%Y-%m-%d %H:%M")
                         
-                        title_prefix = "🤝 " if ev.get("type") == "affiliate" else ""
+                        title_prefix = ""
                         color = 0xF1C40F if ev.get("type") == "affiliate" else 0x2ECC71
                         
                         detail_embed = discord.Embed(
@@ -398,7 +398,7 @@ class CalendarLauncher(ui.View):
         super().__init__(timeout=None)
         self.bot = bot
         
-    @ui.button(label="🗓️ Open Interactive Calendar", style=discord.ButtonStyle.primary, custom_id="launch_cal_btn")
+    @ui.button(label="Open Interactive Calendar", style=discord.ButtonStyle.primary, custom_id="launch_cal_btn")
     async def launch_calendar(self, interaction: discord.Interaction, button: ui.Button):
         now = datetime.now()
         bot: 'EventBot' = interaction.client
@@ -596,7 +596,7 @@ class EventBot(discord.Client):
 
         if next_elc:
             header_elc = discord.Embed(
-                title="📅 ELC EVENTS",
+                title="ELC EVENTS",
                 color=0x3498DB
             )
             embeds.append(header_elc)
@@ -614,13 +614,13 @@ class EventBot(discord.Client):
 
         if next_proj:
             header_proj = discord.Embed(
-                title="🔁 ELC PROJECTS",
+                title="ELC PROJECTS",
                 color=0x9B59B6
             )
             embeds.append(header_proj)
             for dt, event in next_proj:
                 time_str = dt.strftime("%I:%M %p")
-                embed = discord.Embed(title=f"🔁 {event['name']}", color=0x8E44AD)
+                embed = discord.Embed(title=f"{event['name']}", color=0x8E44AD)
                 embed.description = f"**Every {event.get('day_of_week')}** at **{time_str}**\nLocation: **{event.get('location', 'No location')}**\n\n{event.get('description', '')}"
                 if event.get('image_url'):
                     embed.set_image(url=event['image_url'])
@@ -628,7 +628,7 @@ class EventBot(discord.Client):
                 
         if next_aff:
             header_aff = discord.Embed(
-                title="🤝 AFFILIATE CLUB MEETINGS",
+                title="AFFILIATE CLUB MEETINGS",
                 color=0xF1C40F
             )
             embeds.append(header_aff)
@@ -638,7 +638,7 @@ class EventBot(discord.Client):
                 date_str = dt.strftime(f"%B {day}{suffix}, %Y")
                 time_str = dt.strftime("%I:%M %p")
                 
-                embed = discord.Embed(title=f"🤝 {event['name']}", color=0xF39C12)
+                embed = discord.Embed(title=f"{event['name']}", color=0xF39C12)
                 embed.description = f"**{date_str}** at **{time_str}**\nLocation: **{event.get('location', 'No location')}**\n\n{event.get('description', '')}"
                 if event.get('image_url'):
                     embed.set_image(url=event['image_url'])
