@@ -2,6 +2,7 @@ import discord
 import asyncio
 import aiohttp
 import os
+import json
 import logging
 import hashlib
 from io import BytesIO
@@ -15,6 +16,153 @@ from utils.sdcp_client import SDCPClient
 # Setup Logging
 logger = logging.getLogger("StreamBot")
 
+CONFIG_FILE = "data/stream_config.json"
+
+def load_stream_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load stream config: {e}")
+            
+    # Fallback to env vars for initial migration/setup
+    streams = []
+    for i in range(1, 10):
+        url = os.getenv(f'STREAM_{i}_URL')
+        title = os.getenv(f'STREAM_{i}_TITLE', f"Stream {i}")
+        printer_url = os.getenv(f'PRINTER_{i}_URL', "")
+        
+        if url:
+             streams.append({
+                  "id": i,
+                  "title": title,
+                  "url": url,
+                  "printer_url": printer_url
+             })
+             
+    if streams:
+         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+         save_stream_config(streams)
+         
+    return streams
+
+def save_stream_config(streams):
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(streams, f, indent=4)
+class AddStreamModal(discord.ui.Modal, title="Add New Stream"):
+    title_inp = discord.ui.TextInput(label="Stream Name", placeholder="e.g. Printer 1", max_length=50)
+    url_inp = discord.ui.TextInput(label="Camera MJPEG URL", placeholder="http://...", style=discord.TextStyle.short)
+    printer_url_inp = discord.ui.TextInput(label="Printer API URL", placeholder="Optional (http://...:7125)", required=False)
+
+    def __init__(self, bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        streams = load_stream_config()
+        new_id = 1
+        if streams:
+            new_id = max(s['id'] for s in streams) + 1
+            
+        streams.append({
+            "id": new_id,
+            "title": self.title_inp.value,
+            "url": self.url_inp.value,
+            "printer_url": self.printer_url_inp.value
+        })
+        save_stream_config(streams)
+        
+        await interaction.response.send_message(f"✅ Added Stream: {self.title_inp.value}. Restarting...", ephemeral=True)
+        await self.bot.purge_and_restart()
+
+class EditStreamModal(discord.ui.Modal, title="Edit Stream"):
+    title_inp = discord.ui.TextInput(label="Stream Name", max_length=50)
+    url_inp = discord.ui.TextInput(label="Camera MJPEG URL", style=discord.TextStyle.short)
+    printer_url_inp = discord.ui.TextInput(label="Printer API URL", required=False)
+
+    def __init__(self, bot, stream_params):
+        super().__init__()
+        self.bot = bot
+        self.stream_id = stream_params['id']
+        
+        self.title_inp.default = stream_params.get('title', '')
+        self.url_inp.default = stream_params.get('url', '')
+        self.printer_url_inp.default = stream_params.get('printer_url', '')
+
+    async def on_submit(self, interaction: discord.Interaction):
+        streams = load_stream_config()
+        for s in streams:
+            if s['id'] == self.stream_id:
+                s['title'] = self.title_inp.value
+                s['url'] = self.url_inp.value
+                s['printer_url'] = self.printer_url_inp.value
+                break
+        
+        save_stream_config(streams)
+        await interaction.response.send_message(f"✅ Edited Stream {self.stream_id}. Restarting...", ephemeral=True)
+        await self.bot.purge_and_restart()
+
+class EditStreamSelect(discord.ui.Select):
+    def __init__(self, bot):
+        self.bot = bot
+        streams = load_stream_config()
+        options = []
+        for s in streams:
+            lbl = s.get('title', f"Stream {s['id']}")
+            options.append(discord.SelectOption(label=lbl, value=str(s['id'])))
+            if len(options) >= 25: break
+            
+        if not options:
+            options.append(discord.SelectOption(label="No streams available", value="none"))
+            
+        super().__init__(placeholder="Select stream to edit...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("No valid streams to edit.", ephemeral=True)
+            return
+            
+        stream_id = int(self.values[0])
+        streams = load_stream_config()
+        s_params = next((s for s in streams if s['id'] == stream_id), None)
+        if s_params:
+            await interaction.response.send_modal(EditStreamModal(self.bot, s_params))
+        else:
+            await interaction.response.send_message("❌ Stream not found.", ephemeral=True)
+
+class DeleteStreamSelect(discord.ui.Select):
+    def __init__(self, bot):
+        self.bot = bot
+        streams = load_stream_config()
+        options = []
+        for s in streams:
+            lbl = s.get('title', f"Stream {s['id']}")
+            options.append(discord.SelectOption(label=lbl, value=str(s['id']), emoji="🗑️"))
+            if len(options) >= 25: break
+            
+        if not options:
+            options.append(discord.SelectOption(label="No streams available", value="none"))
+            
+        super().__init__(placeholder="Select stream to delete...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("No valid streams to delete.", ephemeral=True)
+            return
+            
+        stream_id = int(self.values[0])
+        streams = load_stream_config()
+        original_len = len(streams)
+        streams = [s for s in streams if s['id'] != stream_id]
+        
+        if len(streams) < original_len:
+            save_stream_config(streams)
+            await interaction.response.send_message("✅ Deleted stream. Restarting...", ephemeral=True)
+            await self.bot.purge_and_restart()
+        else:
+            await interaction.response.send_message("❌ Stream not found.", ephemeral=True)
 
 class StreamAdminView(discord.ui.View):
     def __init__(self, bot: 'StreamBot'):
@@ -28,6 +176,25 @@ class StreamAdminView(discord.ui.View):
              return
          await interaction.response.send_message("Restarting streams...", delete_after=5)
          await self.bot.purge_and_restart()
+
+    @discord.ui.button(label="Add Stream", style=discord.ButtonStyle.primary, custom_id="stream_admin_add")
+    async def add_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator: return
+        await interaction.response.send_modal(AddStreamModal(self.bot))
+
+    @discord.ui.button(label="Edit Stream", style=discord.ButtonStyle.secondary, custom_id="stream_admin_edit")
+    async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator: return
+        view = discord.ui.View()
+        view.add_item(EditStreamSelect(self.bot))
+        await interaction.response.send_message("Select stream to edit:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="Delete Stream", style=discord.ButtonStyle.danger, custom_id="stream_admin_delete")
+    async def delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator: return
+        view = discord.ui.View()
+        view.add_item(DeleteStreamSelect(self.bot))
+        await interaction.response.send_message("Select stream to delete:", view=view, ephemeral=True)
 
 class StreamBot(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -79,14 +246,17 @@ class StreamBot(discord.Client):
             logger.error(f"Stream Channel ID {self.channel_id} not found.")
             return
 
-        # Look for streams 1 through 5 (arbitrary limit)
-        for i in range(1, 6):
-            url = os.getenv(f'STREAM_{i}_URL')
-            title = os.getenv(f'STREAM_{i}_TITLE', f"Stream {i}")
+        # Start streams from config
+        streams = load_stream_config()
+        for stream in streams:
+            url = stream.get('url')
+            title = stream.get('title', f"Stream {stream.get('id')}")
+            index = stream.get('id')
+            p_url = stream.get('printer_url', "")
             
             if url:
-                print(f"Starting stream {i}: {title}")
-                task = self.loop.create_task(self.stream_loop(channel, url, title, i))
+                print(f"Starting stream {index}: {title}")
+                task = self.loop.create_task(self.stream_loop(channel, url, title, index, p_url))
                 self.stream_tasks.append(task)
 
     async def get_frame(self, session, url):
@@ -129,7 +299,7 @@ class StreamBot(discord.Client):
             yield None
             await asyncio.sleep(5)
 
-    async def stream_loop(self, channel, url, title, index):
+    async def stream_loop(self, channel, url, title, index, config_printer_url=""):
         message = None
         last_status = "CONNECTING" 
         
@@ -182,7 +352,7 @@ class StreamBot(discord.Client):
                         if (now - last_update >= self.update_interval) or (current_status != last_status):
                             
                             # Fetch Printer Stats
-                            printer_url = os.getenv(f'PRINTER_{index}_URL')
+                            printer_url = config_printer_url
                             if not printer_url and url:
                                 # Try to guess from stream URL
                                 try:
