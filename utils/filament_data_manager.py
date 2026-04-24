@@ -74,7 +74,7 @@ class FilamentDataManager:
                 return True
         return False
 
-    def add_inventory_item(self, type_name, brand, color, weight):
+    def add_inventory_item(self, type_name, brand, color, weight, admin_only=False):
         """Adds a new filament reel to inventory."""
         self.inventory = self.load_json(self.inventory_file) # Ensure fresh
         new_id = 1
@@ -86,7 +86,8 @@ class FilamentDataManager:
             "type": type_name,
             "brand": brand,
             "color": color,
-            "weight_g": round(weight, 2)
+            "weight_g": round(weight, 2),
+            "admin_only": admin_only
         }
         self.inventory.append(new_item)
         self.save_json(self.inventory_file, self.inventory)
@@ -98,11 +99,10 @@ class FilamentDataManager:
         for item in self.inventory:
             if item['id'] == item_id:
                 for key, value in kwargs.items():
-                    if key in item:
-                        if key == 'weight_g':
-                            item[key] = round(float(value), 2)
-                        else:
-                            item[key] = value
+                    if key == 'weight_g':
+                        item[key] = round(float(value), 2)
+                    else:
+                        item[key] = value
                 self.save_json(self.inventory_file, self.inventory)
                 return True
         return False

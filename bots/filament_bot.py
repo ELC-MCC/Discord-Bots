@@ -65,9 +65,10 @@ class AddFilamentModal(ui.Modal, title="Add New Filament"):
     color = ui.TextInput(label="Color", placeholder="e.g., Matte Black", max_length=30)
     weight = ui.TextInput(label="Initial Weight (g)", placeholder="e.g., 1000", max_length=10)
 
-    def __init__(self, bot):
-        super().__init__()
+    def __init__(self, bot, admin_only=False):
+        super().__init__(title="Add Admin Filament" if admin_only else "Add New Filament")
         self.bot = bot
+        self.admin_only = admin_only
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -76,10 +77,12 @@ class AddFilamentModal(ui.Modal, title="Add New Filament"):
                 self.type_name.value, 
                 self.brand.value, 
                 self.color.value, 
-                weight_val
+                weight_val,
+                self.admin_only
             )
+            tag = "(Admin) " if self.admin_only else ""
             await interaction.response.send_message(
-                f"Added **{self.brand.value} {self.type_name.value} ({self.color.value})** with ID **{new_id}**.",
+                f"Added **{self.brand.value} {self.type_name.value} ({self.color.value})** {tag}with ID **{new_id}**.",
                 delete_after=5
             )
             await self.bot.update_dashboards()
@@ -174,7 +177,8 @@ class FilamentSelect(ui.Select):
         self.bot: 'FilamentBot' = bot
         options = []
         inventory = self.bot.data_manager.get_inventory()
-        sorted_inv = sorted(inventory, key=lambda x: (x.get('type', ''), x.get('color', '')))
+        filtered_inv = [i for i in inventory if not i.get('admin_only', False)]
+        sorted_inv = sorted(filtered_inv, key=lambda x: (x.get('type', ''), x.get('color', '')))
         
         for item in sorted_inv:
             label = f"{item['brand']} {item['type']} - {item['color']}"
@@ -349,9 +353,23 @@ class AdminDashboardView(ui.View):
         super().__init__(timeout=None)
         self.bot = bot
 
+    @ui.button(label="Log Admin Usage", style=discord.ButtonStyle.success, custom_id="filament_admin_log")
+    async def log_admin_usage_btn(self, interaction: discord.Interaction, button: ui.Button):
+        view = ui.View()
+        select = AdminFilamentSelect(self.bot)
+        if not select.options:
+             await interaction.response.send_message("No filament available!", ephemeral=True)
+             return
+        view.add_item(select)
+        await interaction.response.send_message("Select filament you used (Admin):", view=view, ephemeral=True)
+
     @ui.button(label="Add Filament", style=discord.ButtonStyle.primary, custom_id="filament_admin_add")
     async def add_filament_btn(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.send_modal(AddFilamentModal(self.bot))
+        await interaction.response.send_modal(AddFilamentModal(self.bot, admin_only=False))
+
+    @ui.button(label="Add Admin Filament", style=discord.ButtonStyle.primary, custom_id="filament_admin_add_admin")
+    async def add_admin_filament_btn(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(AddFilamentModal(self.bot, admin_only=True))
 
     @ui.button(label="Edit Filament", style=discord.ButtonStyle.primary, custom_id="filament_admin_edit")
     async def edit_filament_btn(self, interaction: discord.Interaction, button: ui.Button):
@@ -469,7 +487,8 @@ class FilamentBot(discord.Client):
             for ftype, items in grouped.items():
                 content = ""
                 for item in items:
-                    content += f"{item['brand']} {item['color']}: {item['weight_g']}g\n"
+                    admin_tag = " 🔒" if item.get('admin_only', False) else ""
+                    content += f"{item['brand']} {item['color']}: {item['weight_g']}g{admin_tag}\n"
                 embed.add_field(name=f"{ftype}", value=content, inline=False)
         
         embed.set_footer(text="Use the button below to log usage.")
