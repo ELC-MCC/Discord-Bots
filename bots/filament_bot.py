@@ -192,7 +192,43 @@ class FilamentSelect(ui.Select):
             ))
             if len(options) >= 25: break 
 
+        if not options:
+            options.append(discord.SelectOption(label="No filaments available", value="-1"))
+
         super().__init__(placeholder="Select a filament...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        filament_id = int(self.values[0])
+        inventory = self.bot.data_manager.get_inventory()
+        item = next((x for x in inventory if x['id'] == filament_id), None)
+        name = f"{item['color']} {item['type']}" if item else "Unknown"
+        
+        await interaction.response.send_modal(LogUsageModal(self.bot, filament_id, name))
+
+class AdminFilamentSelect(ui.Select):
+    def __init__(self, bot):
+        self.bot = bot
+        options = []
+        inventory = self.bot.data_manager.get_inventory()
+        sorted_inv = sorted(inventory, key=lambda x: (x.get('type', ''), x.get('color', '')))
+        
+        for item in sorted_inv:
+            tag = "🔒 " if item.get('admin_only', False) else ""
+            label = f"{tag}{item['brand']} {item['type']} - {item['color']}"
+            desc = f"Remaining: {item['weight_g']}g"
+            if len(label) > 100: label = label[:97] + "..."
+            
+            options.append(discord.SelectOption(
+                label=label, 
+                description=desc, 
+                value=str(item['id'])
+            ))
+            if len(options) >= 25: break 
+
+        if not options:
+            options.append(discord.SelectOption(label="No filaments available", value="-1"))
+
+        super().__init__(placeholder="Select a filament (Admin)...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
         filament_id = int(self.values[0])
@@ -220,6 +256,9 @@ class EditFilamentSelect(ui.Select):
                 value=str(item['id'])
             ))
             if len(options) >= 25: break
+
+        if not options:
+            options.append(discord.SelectOption(label="No filaments to edit", value="-1"))
 
         super().__init__(placeholder="Select filament to edit...", min_values=1, max_values=1, options=options)
 
@@ -251,6 +290,9 @@ class DeleteFilamentSelect(ui.Select):
                 emoji="🗑️"
             ))
             if len(options) >= 25: break
+
+        if not options:
+            options.append(discord.SelectOption(label="No filaments to delete", value="-1"))
 
         super().__init__(placeholder="Select filament to DELETE...", min_values=1, max_values=1, options=options)
 
@@ -290,10 +332,16 @@ class EditLogSelect(ui.Select):
                 value=str(item.get('id', 0))
             ))
 
+        if not options:
+            options.append(discord.SelectOption(label="No logs available", value="-1"))
+
         super().__init__(placeholder="Select recent log to edit...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
         log_id = int(self.values[0])
+        if log_id == -1:
+            await interaction.response.send_message("❌ No logs available to select.", ephemeral=True)
+            return
         logs = self.bot.data_manager.get_logs()
         item = next((x for x in logs if x.get('id') == log_id), None)
         
@@ -320,10 +368,16 @@ class DeleteLogSelect(ui.Select):
                 emoji="🗑️"
             ))
 
+        if not options:
+            options.append(discord.SelectOption(label="No logs available", value="-1"))
+
         super().__init__(placeholder="Select recent log to delete...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
         log_id = int(self.values[0])
+        if log_id == -1:
+            await interaction.response.send_message("❌ No logs available to select.", ephemeral=True)
+            return
         success = self.bot.data_manager.delete_log(log_id)
         if success:
             await interaction.response.send_message(f"🗑️ **Deleted Log** (ID: {log_id}). Restored inventory.", ephemeral=True)
