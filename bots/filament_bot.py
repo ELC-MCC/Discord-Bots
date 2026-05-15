@@ -315,6 +315,53 @@ class DeleteFilamentSelect(ui.Select):
         else:
             await interaction.response.send_message("❌ Filament not found!", ephemeral=True)
 
+class MoveToRegularSelect(ui.Select):
+    def __init__(self, bot):
+        self.bot = bot
+        options = []
+        inventory = self.bot.data_manager.get_inventory()
+        admin_inv = [i for i in inventory if i.get('admin_only', False)]
+        sorted_inv = sorted(admin_inv, key=lambda x: (x.get('brand', ''), x.get('type', ''), x.get('color', '')))
+        
+        for item in sorted_inv:
+            label = f"{item['brand']} {item['type']} - {item['color']}"
+            if len(label) > 100: label = label[:97] + "..."
+            
+            options.append(discord.SelectOption(
+                label=label,
+                description=f"ID: {item['id']} | {item['weight_g']}g",
+                value=str(item['id']),
+                emoji="➡️"
+            ))
+            if len(options) >= 25: break
+
+        if not options:
+            options.append(discord.SelectOption(label="No admin filaments", value="-1"))
+
+        super().__init__(placeholder="Select admin filament to move...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        filament_id = int(self.values[0])
+        if filament_id == -1:
+            await interaction.response.send_message("❌ No filaments available to move.", ephemeral=True)
+            return
+            
+        inventory = self.bot.data_manager.get_inventory()
+        item = next((x for x in inventory if x['id'] == filament_id), None)
+        
+        if item:
+            success = self.bot.data_manager.update_inventory_item(filament_id, admin_only=False)
+            if success:
+                await interaction.response.send_message(
+                    f"✅ Moved **{item['brand']} {item['type']} - {item['color']}** to the regular pool.", 
+                    ephemeral=True
+                )
+                await self.bot.update_dashboards()
+            else:
+                await interaction.response.send_message("❌ Failed to move filament.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Filament not found!", ephemeral=True)
+
 class EditLogSelect(ui.Select):
     def __init__(self, bot):
         self.bot = bot
@@ -474,6 +521,16 @@ class AdminDashboardView(ui.View):
              return
         view.add_item(select)
         await interaction.response.send_message("Select a recent log to delete:", view=view, ephemeral=True)
+
+    @ui.button(label="Move to Regular", style=discord.ButtonStyle.primary, custom_id="filament_admin_move_regular", row=1)
+    async def move_to_regular_btn(self, interaction: discord.Interaction, button: ui.Button):
+        view = ui.View()
+        select = MoveToRegularSelect(self.bot)
+        if not select.options or select.options[0].value == "-1":
+             await interaction.response.send_message("No admin filaments available!", ephemeral=True)
+             return
+        view.add_item(select)
+        await interaction.response.send_message("Select admin filament to move to regular pool:", view=view, ephemeral=True)
 
 # --- Main Bot Class ---
 class FilamentBot(discord.Client):
