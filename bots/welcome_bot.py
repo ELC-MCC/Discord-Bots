@@ -92,7 +92,7 @@ class WelcomeBot(discord.Client):
 
             embed = discord.Embed(
                 title=title,
-                description=f"Welcome to the ELC, {member.mention}! We are excited to have you here. Please check out the rules and introduce yourself!",
+                description=f"Welcome to the ELC, **{member.display_name}**! We are excited to have you here. Please check out the rules and introduce yourself!",
                 color=color
             )
             embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
