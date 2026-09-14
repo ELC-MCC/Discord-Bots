@@ -8,6 +8,7 @@ from bots.event_bot import EventBot
 from bots.stream_bot import StreamBot
 from bots.schedule_bot import ScheduleBot
 from bots.filament_bot import FilamentBot
+from bots.announcement_bot import AnnouncementBot
 import bot_config
 
 import logging
@@ -110,6 +111,17 @@ async def run_bots():
             print("Warning: FILAMENT_BOT_TOKEN not found in .env (but bot is ENABLED)")
     else:
         print("Filament Bot is DISABLED in bot_config.py")
+
+    # Add Announcement Bot
+    announcement_token = os.getenv('ANNOUNCEMENT_BOT_TOKEN')
+    if bot_config.ENABLE_ANNOUNCEMENT_BOT:
+        if announcement_token:
+            announcement_bot = AnnouncementBot(intents=intents)
+            bots.append(announcement_bot.start(announcement_token.strip()))
+        else:
+            print("Warning: ANNOUNCEMENT_BOT_TOKEN not found in .env (but bot is ENABLED)")
+    else:
+        print("Announcement Bot is DISABLED in bot_config.py")
 
 
 

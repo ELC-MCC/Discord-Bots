@@ -28,6 +28,11 @@ SCHEDULE_BOT_FOOTER = "Makerspace Weekly Schedule"
 ENABLE_FILAMENT_BOT = True
 FILAMENT_BOT_NICKNAME = "Filament Tracker"
 
+# Announcement Bot
+ENABLE_ANNOUNCEMENT_BOT = True
+ANNOUNCEMENT_BOT_NICKNAME = "The Herald"
+ANNOUNCEMENT_BOT_FOOTER = "Official ELC Announcements"
+
 # Welcome Puns
 WELCOME_PUNS = [
     # --- Electrical Engineering ---

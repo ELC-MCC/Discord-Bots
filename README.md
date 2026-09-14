@@ -140,7 +140,40 @@ Manages 3D printer filament inventory, tracking usage and remaining weights.
 
 ---
 
-### 7. Universal Admin Control
+### 7. The Herald (Announcement Bot)
+**Status:** `Active` | **Prefix:** `!`
+
+Writes and schedules server announcements from a button in the admin panel, so nothing has to be posted by hand at the right moment.
+
+#### **Key Features:**
+*   **Compose From A Button:** Asks for a title, a send time, then the announcement text. All three in one form.
+*   **Timed Delivery:** Announcements are queued and posted automatically, even if the bot was offline when the time arrived.
+*   **Flexible Times:** Accepts `30m`, `2h`, `1h30m`, `3 days`, `tomorrow 8:00`, `2026-09-14 19:30`, `09/14/2026 7:30 PM`, or `now`.
+*   **Confirm Step:** Shows a private preview of the parsed send time before anything is queued, so a typo never turns into a mis-timed post.
+*   **Set The Target Channel:** The admin panel picks which channel announcements are posted to, with a permission check on the chosen channel.
+*   **Optional @everyone:** Schedule a post with or without a ping.
+*   **Manageable Queue:** Review, send early, or cancel anything that is still waiting.
+*   **History:** See what already went out, when, and whether it failed.
+
+#### **Command Reference:**
+| Command | Permission | Description |
+| :--- | :--- | :--- |
+| `!admin_setup` | **Admin** | Posts this bot's control panel into the admin channel. |
+| `!announce` | **Admin** | Sends a button that opens the compose form. |
+| `!announce list` | **Admin** | Lists everything still queued, with IDs. |
+| `!announce cancel <id>` | **Admin** | Cancels a queued announcement. |
+| `!announce channel` | **Admin** | Sets the target channel to the current channel. |
+
+#### **Scheduling Notes:**
+Times are anchored to `America/New_York` by default, so `2026-09-14 19:30` means 7:30 PM Eastern even when the server clock is set to UTC (the usual state of a fresh box). Override with `ANNOUNCEMENT_TIMEZONE` in `.env` if the club ever moves. A date typed with no time lands at 9:00 AM. A bare time such as `19:30` means today, or tomorrow if that already passed.
+
+The target channel is not configured in `.env`. It is set from **Set Announcement Channel** in the admin panel and remembered in the data file, so it can be changed at any time without touching the server.
+
+The queue is stored in `data/announcements.json` (gitignored), relative to the folder the bots run from.
+
+---
+
+### 8. Universal Admin Control
 **Command:** `!admin_setup`
 
 Consolidates all bot admin panels into a single channel.
@@ -218,6 +251,12 @@ FILAMENT_DATA_PATH=./data
 FILAMENT_PUBLIC_CHANNEL_ID=123456789
 FILAMENT_ADMIN_CHANNEL_ID=987654321
 
+# Announcement Bot
+ANNOUNCEMENT_BOT_TOKEN=your_token_here
+# The target channel is set from the admin panel, not here.
+ANNOUNCEMENT_DATA_PATH=./data
+# ANNOUNCEMENT_TIMEZONE=America/New_York  # optional, this is already the default
+
 # Universal Admin
 ADMIN_CHANNEL_ID=123456789 # Channel for !admin_setup command
 ```
@@ -235,6 +274,7 @@ ROLE_BOT_NICKNAME = "Sudo Master"
 EVENT_BOT_NICKNAME = "The Event Loop"
 STREAM_BOT_NICKNAME = "The G-Code Guardian"
 SCHEDULE_BOT_NICKNAME = "The Timekeeper"
+ANNOUNCEMENT_BOT_NICKNAME = "The Herald"
 
 # Welcome Messages
 WELCOME_PUNS = [...] # Add your own puns here!

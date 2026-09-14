@@ -1,3 +1,6 @@
 discord.py
 python-dotenv
-
+# Backs zoneinfo for the announcement scheduler's timezone handling. Linux gets this
+# from the system tz database, but the wheel keeps Windows and minimal container
+# images working too.
+tzdata
