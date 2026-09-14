@@ -4,10 +4,53 @@ import random
 import os
 import bot_config
 
+# Discord channel IDs are snowflakes. .env.example ships these keys empty, and
+# os.getenv only falls back to its default when a key is ABSENT, not when it is
+# present and blank. int("") raises ValueError, which used to abort every welcome
+# before the by-name channel search could run.
+FALLBACK_CHANNEL_NAMES = ["new-people", "welcome", "general"]
+
+# "Where to Start" links, in display order.
+START_HERE_CHANNELS = [
+    ("GENERAL_CHANNEL_ID", "General Chat"),
+    ("INTRODUCTIONS_CHANNEL_ID", "Introductions"),
+    ("MAKER_GENERAL_CHANNEL_ID", "Maker General"),
+]
+
+# Both on_member_join and on_member_update can fire for one person.
+DEBOUNCE_SECONDS = 10
+MAX_TRACKED_MEMBERS = 200
+
+
+def env_channel_id(name):
+    """Read a channel ID from the environment, tolerating blank or malformed values."""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"WelcomeBot: {name} is not a numeric channel ID ({raw!r}); ignoring it.")
+        return None
+
+
 class WelcomeBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.last_welcome_time = {}  # Track last welcome time for each member ID
+        self.last_welcome_time = {}  # member ID -> time of last successful welcome
+
+    def already_welcomed(self, member_id):
+        last = self.last_welcome_time.get(member_id)
+        return last is not None and (time.time() - last) < DEBOUNCE_SECONDS
+
+    def remember_welcome(self, member_id):
+        self.last_welcome_time[member_id] = time.time()
+        # Keep the ledger bounded instead of growing for the life of the process.
+        if len(self.last_welcome_time) > MAX_TRACKED_MEMBERS:
+            overflow = len(self.last_welcome_time) - MAX_TRACKED_MEMBERS
+            oldest = sorted(self.last_welcome_time.items(), key=lambda kv: kv[1])[:overflow]
+            for old_id, _ in oldest:
+                self.last_welcome_time.pop(old_id, None)
 
     async def on_ready(self):
         print(f'Logged in as {self.user} (ID: {self.user.id})')
@@ -50,80 +93,72 @@ class WelcomeBot(discord.Client):
             await self.send_welcome(after)
 
     async def send_welcome(self, member):
-        # Debounce check: Ignore if welcomed in the last 10 seconds
-        current_time = time.time()
-        if member.id in self.last_welcome_time and (current_time - self.last_welcome_time[member.id] < 10):
+        # Debounce: on_member_join and on_member_update can both fire for one person.
+        if self.already_welcomed(member.id):
             print(f"Ignored duplicate welcome event for {member.name} (ID: {member.id})")
             return
-        
-        self.last_welcome_time[member.id] = current_time
-        
+
         print(f"Welcoming member: {member.name} (ID: {member.id})")
-        
+
         guild = member.guild
 
-        
-        # Try to find the specific channel by ID
-        target_channel_id = int(os.getenv('WELCOME_CHANNEL_ID', '0'))
-        channel = guild.get_channel(target_channel_id)
+        # Prefer the configured channel, otherwise look one up by name.
+        target_channel_id = env_channel_id('WELCOME_CHANNEL_ID')
+        channel = guild.get_channel(target_channel_id) if target_channel_id else None
 
-        # Fallback to name search if ID not found (e.g., bot in a different server)
         if not channel:
-            print(f"Channel ID {target_channel_id} not found. Searching by name...")
-            target_channels = ["new-people", "welcome", "general"]
-            for name in target_channels:
+            if target_channel_id:
+                print(f"Channel ID {target_channel_id} not found. Searching by name...")
+            else:
+                print("No usable WELCOME_CHANNEL_ID. Searching by name...")
+            for name in FALLBACK_CHANNEL_NAMES:
                 found = discord.utils.get(guild.text_channels, name=name)
                 if found:
                     channel = found
                     break
-        
-        if channel:
-            # Puns from config
-            puns = bot_config.WELCOME_PUNS
-            
-            if puns:
-                title = random.choice(puns)
-            else:
-                title = "Welcome to the ELC!"
-            
-            # Random vibrant color
-            colors = [0x00FFFF, 0xFF00FF, 0x00FF00, 0xFFA500, 0xFFFF00, 0x0000FF]
-            color = random.choice(colors)
 
-            embed = discord.Embed(
-                title=title,
-                description=f"Welcome to the ELC, **{member.display_name}**! We are excited to have you here. Please check out the rules and introduce yourself!",
-                color=color
-            )
-            embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
-            
-            # Fetch channel IDs from env
-            general_id = os.getenv('GENERAL_CHANNEL_ID')
-            intro_id = os.getenv('INTRODUCTIONS_CHANNEL_ID')
-            maker_id = os.getenv('MAKER_GENERAL_CHANNEL_ID')
+        if not channel:
+            print(f"Could not find any of the following channels: "
+                  f"{', '.join(FALLBACK_CHANNEL_NAMES)} to greet {member.name}")
+            return
 
-            # Add "Where to Start" field
-            embed.add_field(
-                name="Where to Start",
-                value=(
-                    f"• <#{general_id}> - General Chat\n"
-                    f"• <#{intro_id}> - Introductions\n"
-                    f"• <#{maker_id}> - Maker General"
-                ),
-                inline=False
-            )
-            
-            # No footer as requested
-            
-            try:
-                await channel.send(embed=embed)
-                print(f"Sent welcome message for {member.name} in #{channel.name}")
-            except discord.Forbidden:
-                print(f"Error: Missing permissions to send messages in #{channel.name}")
-            except Exception as e:
-                print(f"Error sending welcome message: {e}")
+        # Puns from config
+        puns = bot_config.WELCOME_PUNS
+        title = random.choice(puns) if puns else "Welcome to the ELC!"
+
+        # Random vibrant color
+        colors = [0x00FFFF, 0xFF00FF, 0x00FF00, 0xFFA500, 0xFFFF00, 0x0000FF]
+        color = random.choice(colors)
+
+        embed = discord.Embed(
+            title=title,
+            description=f"Welcome to the ELC, **{member.display_name}**! We are excited to have you here. Please check out the rules and introduce yourself!",
+            color=color
+        )
+        embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+
+        # Only list channels that are actually configured. A row of broken <#None>
+        # mentions looks worse than no field at all.
+        links = []
+        for env_key, label in START_HERE_CHANNELS:
+            channel_id = env_channel_id(env_key)
+            if channel_id:
+                links.append(f"• <#{channel_id}> - {label}")
+        if links:
+            embed.add_field(name="Where to Start", value="\n".join(links), inline=False)
+
+        # No footer as requested
+
+        try:
+            await channel.send(embed=embed)
+        except discord.Forbidden:
+            print(f"Error: Missing permissions to send messages in #{channel.name}")
+        except Exception as e:
+            print(f"Error sending welcome message: {e}")
         else:
-            print(f"Could not find any of the following channels: {', '.join(target_channels)} to greet {member.name}")
+            # Record only after a real send, so a failure can still be retried.
+            self.remember_welcome(member.id)
+            print(f"Sent welcome message for {member.name} in #{channel.name}")
 
     async def on_message(self, message):
         if message.author == self.user:
