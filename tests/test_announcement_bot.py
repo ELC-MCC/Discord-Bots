@@ -87,7 +87,15 @@ def make_bot(data_dir):
     return AnnouncementBot(intents=discord.Intents.none())
 
 
-class BotTestCase(unittest.TestCase):
+class BotTestCase(unittest.IsolatedAsyncioTestCase):
+    """Async test case on purpose.
+
+    discord.py 2.6.x builds a View's internal future with
+    asyncio.get_running_loop(), so a View cannot be constructed outside a running
+    event loop. 2.7.x made that lazy. Tests that touch views therefore have to be
+    async so they hold a loop, which is also how the real bot builds them.
+    """
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="announce-test-")
         self.bot = make_bot(self.tmp)
@@ -105,7 +113,7 @@ class BotTestCase(unittest.TestCase):
 
 
 class ComponentTests(BotTestCase):
-    def test_every_view_builds(self):
+    async def test_every_view_builds(self):
         payload = {"title": "T", "body": "B", "raw_when": "30m", "send_at": sched.to_iso(sched.current_time())}
         for view in (
             AnnouncementAdminView(self.bot),
@@ -116,10 +124,10 @@ class ComponentTests(BotTestCase):
         ):
             self.assertIsInstance(view, discord.ui.View)
 
-    def test_modal_builds(self):
+    async def test_modal_builds(self):
         self.assertIsInstance(AnnouncementModal(), discord.ui.Modal)
 
-    def test_modal_asks_the_three_questions(self):
+    async def test_modal_asks_the_three_questions(self):
         modal = AnnouncementModal()
         inputs = [c for c in modal.children if isinstance(c, discord.ui.TextInput)]
         self.assertEqual(len(inputs), 3, "expected title / when / announcement")
@@ -127,7 +135,7 @@ class ComponentTests(BotTestCase):
         self.assertEqual(inputs[1].style, discord.TextStyle.short)
         self.assertEqual(inputs[2].style, discord.TextStyle.paragraph, "announcement body must be multiline")
 
-    def test_panel_button_ids_are_stable(self):
+    async def test_panel_button_ids_are_stable(self):
         view = AnnouncementAdminView(self.bot)
         custom_ids = {item.custom_id for item in view.children}
         self.assertEqual(
@@ -427,36 +435,36 @@ class FlowTests(BotTestCase):
         self.bot.data["channel_id"] = self.channel.id
         self.bot.data["channel_name"] = self.channel.name
 
-    def compose(self, title, when, body):
+    async def compose(self, title, when, body):
         """Submit the modal and return the confirmation view it produces."""
         modal = AnnouncementModal()
         set_modal_values(modal, title, when, body)
         interaction = FakeInteraction(self.bot)
-        asyncio.run(modal.on_submit(interaction))
+        await modal.on_submit(interaction)
         sent = interaction.response.messages
         self.assertEqual(len(sent), 1, "modal should answer exactly once")
         return sent[0]
 
-    def test_modal_previews_before_committing(self):
-        answer = self.compose("Spring cleanup", "2h", "Bring gloves.")
+    async def test_modal_previews_before_committing(self):
+        answer = await self.compose("Spring cleanup", "2h", "Bring gloves.")
         self.assertIsInstance(answer["view"], ConfirmAnnouncementView)
         self.assertEqual(answer["embed"].title, "Spring cleanup")
         # Nothing should be queued until the admin confirms.
         self.assertEqual(self.bot.data["announcements"], [])
 
-    def test_modal_rejects_bad_time_with_help(self):
-        answer = self.compose("Title", "next tuesday-ish", "Body")
+    async def test_modal_rejects_bad_time_with_help(self):
+        answer = await self.compose("Title", "next tuesday-ish", "Body")
         self.assertIsNone(answer["embed"])
         self.assertIn("Could not understand", answer["content"])
         self.assertIn("30m", answer["content"], "should show accepted formats")
         self.assertEqual(self.bot.data["announcements"], [])
 
-    def test_confirm_then_send_end_to_end(self):
-        answer = self.compose("Fire drill", "in 5 minutes", "Please evacuate the building.")
+    async def test_confirm_then_send_end_to_end(self):
+        answer = await self.compose("Fire drill", "in 5 minutes", "Please evacuate the building.")
         view = answer["view"]
 
         interaction = FakeInteraction(self.bot)
-        asyncio.run(press(view, "Schedule", interaction))
+        await press(view, "Schedule", interaction)
 
         # Queued, not sent.
         stored = self.bot.data["announcements"]
@@ -469,71 +477,71 @@ class FlowTests(BotTestCase):
         # Rewind it to simulate time passing, then let the loop dispatch.
         stored[0]["send_at"] = sched.to_iso(sched.current_time() - timedelta(seconds=1))
         self.bot.save()
-        self.assertEqual(asyncio.run(self.bot.dispatch_due()), 1)
+        self.assertEqual(await self.bot.dispatch_due(), 1)
 
         self.assertEqual(len(self.channel.sent), 1)
         self.assertEqual(self.channel.sent[0]["embed"].title, "Fire drill")
         self.assertEqual(self.bot.data["announcements"][0]["status"], "sent")
 
-    def test_schedule_with_ping_sets_flag(self):
-        answer = self.compose("Urgent", "now", "Server is down.")
-        asyncio.run(press(answer["view"], "Schedule + @everyone", FakeInteraction(self.bot)))
+    async def test_schedule_with_ping_sets_flag(self):
+        answer = await self.compose("Urgent", "now", "Server is down.")
+        await press(answer["view"], "Schedule + @everyone", FakeInteraction(self.bot))
         self.assertTrue(self.bot.data["announcements"][0]["ping"])
-        asyncio.run(self.bot.dispatch_due())
+        await self.bot.dispatch_due()
         self.assertEqual(self.channel.sent[0]["content"], "@everyone")
 
-    def test_cancel_leaves_queue_empty(self):
-        answer = self.compose("Never mind", "1h", "Body")
-        asyncio.run(press(answer["view"], "Cancel", FakeInteraction(self.bot)))
+    async def test_cancel_leaves_queue_empty(self):
+        answer = await self.compose("Never mind", "1h", "Body")
+        await press(answer["view"], "Cancel", FakeInteraction(self.bot))
         self.assertEqual(self.bot.data["announcements"], [])
 
-    def test_refuses_to_schedule_without_a_channel(self):
+    async def test_refuses_to_schedule_without_a_channel(self):
         self.bot.data["channel_id"] = None
-        answer = self.compose("Homeless", "1h", "Body")
+        answer = await self.compose("Homeless", "1h", "Body")
         interaction = FakeInteraction(self.bot)
-        asyncio.run(press(answer["view"], "Schedule", interaction))
+        await press(answer["view"], "Schedule", interaction)
         self.assertEqual(self.bot.data["announcements"], [])
         self.assertIn("Set Announcement Channel", interaction.response.messages[-1]["content"])
 
-    def test_non_admin_cannot_schedule(self):
+    async def test_non_admin_cannot_schedule(self):
         plain = FakeAuthor("member")
         plain.guild_permissions = discord.Permissions.none()
-        answer = self.compose("Sneaky", "1h", "Body")
+        answer = await self.compose("Sneaky", "1h", "Body")
         interaction = FakeInteraction(self.bot, user=plain)
-        asyncio.run(press(answer["view"], "Schedule", interaction))
+        await press(answer["view"], "Schedule", interaction)
         self.assertEqual(self.bot.data["announcements"], [])
         self.assertIn("Admins", interaction.response.messages[-1]["content"])
 
-    def test_send_now_delivers_immediately(self):
-        answer = self.compose("Right now", "2h", "Immediate body")
+    async def test_send_now_delivers_immediately(self):
+        answer = await self.compose("Right now", "2h", "Immediate body")
         interaction = FakeInteraction(self.bot)
-        asyncio.run(press(answer["view"], "Send Now", interaction))
+        await press(answer["view"], "Send Now", interaction)
         self.assertEqual(len(self.channel.sent), 1)
         self.assertEqual(self.channel.sent[0]["embed"].title, "Right now")
         self.assertEqual(self.bot.data["announcements"][0]["status"], "sent")
 
-    def test_admin_panel_buttons_are_wired(self):
+    async def test_admin_panel_buttons_are_wired(self):
         view = AnnouncementAdminView(self.bot)
         self.assertEqual(
             sorted(i.label for i in view.children),
             ["History", "New Announcement", "Scheduled", "Set Announcement Channel"],
         )
 
-    def test_scheduled_list_shows_queued_items(self):
-        self.compose_and_schedule("One", "1h", "b")
-        self.compose_and_schedule("Two", "2h", "b")
+    async def test_scheduled_list_shows_queued_items(self):
+        await self.compose_and_schedule("One", "1h", "b")
+        await self.compose_and_schedule("Two", "2h", "b")
         view = AnnouncementAdminView(self.bot)
         interaction = FakeInteraction(self.bot)
-        asyncio.run(press(view, "Scheduled", interaction))
+        await press(view, "Scheduled", interaction)
         message = interaction.response.messages[-1]
         self.assertIsInstance(message["view"], ManageAnnouncementsView)
         self.assertIn("2 scheduled", message["content"])
         options = [o.label for o in message["view"].children[0].options]
         self.assertEqual(len(options), 2)
 
-    def compose_and_schedule(self, title, when, body):
-        answer = self.compose(title, when, body)
-        asyncio.run(press(answer["view"], "Schedule", FakeInteraction(self.bot)))
+    async def compose_and_schedule(self, title, when, body):
+        answer = await self.compose(title, when, body)
+        await press(answer["view"], "Schedule", FakeInteraction(self.bot))
         return self.bot.data["announcements"][-1]
 
 
