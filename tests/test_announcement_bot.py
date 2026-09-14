@@ -392,7 +392,7 @@ class FakeFollowup:
 
 class FakeGuild:
     def __init__(self):
-        self.me = FakeAuthor("The Herald", 1)
+        self.me = FakeAuthor("Megaphone Man", 1)
 
 
 class FakeInteraction:

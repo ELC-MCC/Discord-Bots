@@ -140,7 +140,7 @@ Manages 3D printer filament inventory, tracking usage and remaining weights.
 
 ---
 
-### 7. The Herald (Announcement Bot)
+### 7. Megaphone Man (Announcement Bot)
 **Status:** `Active` | **Prefix:** `!`
 
 Writes and schedules server announcements from a button in the admin panel, so nothing has to be posted by hand at the right moment.
@@ -274,7 +274,7 @@ ROLE_BOT_NICKNAME = "Sudo Master"
 EVENT_BOT_NICKNAME = "The Event Loop"
 STREAM_BOT_NICKNAME = "The G-Code Guardian"
 SCHEDULE_BOT_NICKNAME = "The Timekeeper"
-ANNOUNCEMENT_BOT_NICKNAME = "The Herald"
+ANNOUNCEMENT_BOT_NICKNAME = "Megaphone Man"
 
 # Welcome Messages
 WELCOME_PUNS = [...] # Add your own puns here!
