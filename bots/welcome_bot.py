@@ -1,4 +1,5 @@
 import discord
+import asyncio
 import time
 import random
 import os
@@ -52,6 +53,70 @@ class WelcomeBot(discord.Client):
             for old_id, _ in oldest:
                 self.last_welcome_time.pop(old_id, None)
 
+    def resolve_welcome_channel(self, guild):
+        """The channel a welcome would actually be posted to, or None."""
+        configured = env_channel_id('WELCOME_CHANNEL_ID')
+        channel = guild.get_channel(configured) if configured else None
+        if channel:
+            return channel
+        for name in FALLBACK_CHANNEL_NAMES:
+            found = discord.utils.get(guild.text_channels, name=name)
+            if found:
+                return found
+        return None
+
+    def diagnose(self, guild):
+        """Reasons welcomes would silently not arrive. Empty list means healthy.
+
+        Everything the bot needs in order to greet someone is checkable up front,
+        so this exists to turn "it does not work" into a specific sentence.
+        """
+        problems = []
+        configured = env_channel_id('WELCOME_CHANNEL_ID')
+
+        if not configured:
+            problems.append(
+                "`WELCOME_CHANNEL_ID` is empty or missing in .env, so a channel named "
+                + ", ".join(FALLBACK_CHANNEL_NAMES) + " is used instead."
+            )
+
+        channel = self.resolve_welcome_channel(guild)
+        if channel is None:
+            problems.append(
+                "No welcome channel found, so every welcome is skipped. Set "
+                "`WELCOME_CHANNEL_ID` to the numeric channel ID (Developer Mode on, then "
+                "right click the channel, Copy Channel ID)."
+            )
+            self._append_intent_problem(problems)
+            return problems
+
+        if configured and guild.get_channel(configured) is None:
+            problems.append(
+                f"`WELCOME_CHANNEL_ID` ({configured}) does not exist in this server, "
+                f"so #{channel.name} was used instead."
+            )
+
+        try:
+            perms = channel.permissions_for(guild.me)
+            for label, allowed in (
+                ("View Channel", perms.view_channel),
+                ("Send Messages", perms.send_messages),
+                ("Embed Links", perms.embed_links),
+            ):
+                if not allowed:
+                    problems.append(f"Missing the {label} permission in #{channel.name}")
+        except Exception as exc:
+            problems.append(f"Could not read permissions for #{channel.name}: {exc}")
+
+        self._append_intent_problem(problems)
+        return problems
+
+    def _append_intent_problem(self, problems):
+        if not getattr(self.intents, "members", False):
+            problems.append(
+                "The Server Members intent is off, so on_member_join never fires at all."
+            )
+
     async def on_ready(self):
         print(f'Logged in as {self.user} (ID: {self.user.id})')
         print('------')
@@ -64,6 +129,16 @@ class WelcomeBot(discord.Client):
                 print(f"Missing permissions to change nickname in {guild.name}")
             except Exception as e:
                 print(f"Failed to change nickname in {guild.name}: {e}")
+
+            # Say up front whether welcomes can actually go out.
+            problems = self.diagnose(guild)
+            if problems:
+                print(f"WelcomeBot: {len(problems)} problem(s) found in {guild.name}:")
+                for problem in problems:
+                    print("  - " + problem.replace("`", ""))
+            else:
+                channel = self.resolve_welcome_channel(guild)
+                print(f"WelcomeBot: ready in {guild.name}, welcomes will post to #{channel.name}")
 
     async def on_member_join(self, member):
         """
@@ -161,44 +236,86 @@ class WelcomeBot(discord.Client):
             print(f"Sent welcome message for {member.name} in #{channel.name}")
 
     async def on_message(self, message):
-        if message.author == self.user:
+        if message.author == self.user or not message.content:
+            return
+
+        # On-demand health check, so you do not have to read the process logs.
+        if message.content.startswith('!welcome_check'):
+            if not message.author.guild_permissions.administrator:
+                return
+            await message.channel.send(embed=self.check_embed(message.guild))
             return
 
         # Universal Admin Setup
         if message.content.startswith('!admin_setup'):
-             if not message.author.guild_permissions.administrator:
-                 return
-            
-             # Check configured admin channel
-             admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
-             if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
+            if not message.author.guild_permissions.administrator:
                 return
 
-             # Wait for purge
-             import asyncio
-             await asyncio.sleep(2)
+            # Check configured admin channel
+            admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
+            if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
+                return
 
-             # Get current config status
-             welcome_chan = os.getenv('WELCOME_CHANNEL_ID', 'Not Set')
-             
-             # Check Auto-Role Status
-             member_role_id = os.getenv('MEMBER_ROLE_ID')
-             role_status = "❌ Not Configured (Set `MEMBER_ROLE_ID` in .env)"
-             
-             if member_role_id:
-                 try:
-                     role = message.guild.get_role(int(member_role_id))
-                     if role:
-                         role_status = f"✅ Active: {role.mention}"
-                     else:
-                         role_status = f"⚠️ Error: Role ID `{member_role_id}` not found in this server."
-                 except ValueError:
-                     role_status = f"⚠️ Error: Invalid Role ID format in .env"
+            # Wait for the other bots to finish their purge of this channel.
+            await asyncio.sleep(2)
+            await message.channel.send(embed=self.panel_embed(message.guild))
+            return
 
-             embed = discord.Embed(
-                 title="Jeff the Doorman (Welcome Bot)",
-                 description=f"Welcomes new members with puns.\n\n**Status:**\n• **Welcome Channel ID:** `{welcome_chan}`\n• **Auto-Role:** {role_status}",
-                 color=0xE91E63
-             )
-             await message.channel.send(embed=embed)
-             return
+    def check_embed(self, guild):
+        """Report whether a welcome could actually be delivered right now."""
+        channel = self.resolve_welcome_channel(guild)
+        problems = self.diagnose(guild)
+
+        embed = discord.Embed(
+            title="Welcome Bot Check",
+            color=0xE74C3C if problems else 0x2ECC71,
+        )
+        embed.add_field(
+            name="Welcome channel",
+            value=channel.mention if channel else "*none found*",
+            inline=False,
+        )
+        body = (
+            "\n".join("- " + problem for problem in problems)
+            if problems
+            else "No problems found. Welcomes should post normally."
+        )
+        embed.add_field(name="Result", value=body[:1020], inline=False)
+        embed.set_footer(text="Run this again after any .env or permission change.")
+        return embed
+
+    def panel_embed(self, guild):
+        channel = self.resolve_welcome_channel(guild)
+        problems = self.diagnose(guild)
+
+        embed = discord.Embed(
+            title=f"{bot_config.WELCOME_BOT_NICKNAME} (Welcome Bot)",
+            description=(
+                "Welcomes new members with puns.\n\n"
+                "**Commands:**\n"
+                "`!welcome_check` - report whether welcomes can actually be delivered."
+            ),
+            color=0xE91E63,
+        )
+        embed.add_field(
+            name="Welcome channel",
+            value=channel.mention if channel else "*none found*",
+            inline=True,
+        )
+        embed.add_field(
+            name="Health",
+            value="OK" if not problems else f"{len(problems)} problem(s)",
+            inline=True,
+        )
+        if problems:
+            embed.add_field(
+                name="Problems",
+                value="\n".join("- " + problem for problem in problems)[:1020],
+                inline=False,
+            )
+        embed.add_field(
+            name="Role handling",
+            value="Auto-role on join is handled by Sudo Master (Role Bot), not by this bot.",
+            inline=False,
+        )
+        return embed

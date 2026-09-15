@@ -55,8 +55,23 @@ Ensures every new member receives a warm welcome and direction.
 
 #### **Key Features:**
 *   **Engineering Puns:** Selects from a curated list of engineering-themed welcome messages.
-*   **Dynamic Orientation:** Directs users to key channels based on server configuration.
-*   **Auto-Role:** Assigns the initial "Member" role immediately upon joining.
+*   **Dynamic Orientation:** Lists only the channels that are actually configured, so an unset ID never renders a broken mention.
+*   **Deferred Welcomes:** Waits for Membership Screening to finish before greeting, when the server uses it.
+*   **Self-Diagnosis:** Reports at startup, and on demand, whether welcomes can actually be delivered, instead of failing silently.
+
+#### **Command Reference:**
+| Command | Permission | Description |
+| :--- | :--- | :--- |
+| `!welcome_check` | **Admin** | Checks the welcome channel, its permissions and the required intents, then states exactly what is wrong. |
+| `!admin_setup` | **Admin** | Posts this bot's control panel into the admin channel. |
+
+**This bot does not assign roles.** Auto-role on join is handled by Sudo Master (Role Bot) through `AUTO_JOIN_ROLE_ID`, falling back to `MEMBER_ROLE_ID`.
+
+#### **If welcomes are not appearing:**
+1.  Confirm the bot is actually running. On startup it logs either `[startup] Welcome Bot: SKIPPED. WELCOME_BOT_TOKEN is empty or missing in .env` or a `WelcomeBot: ready in <server>` line. A blank token means this bot never starts while the others keep working.
+2.  Run `!welcome_check` in the server and read the problems it lists.
+3.  In the [Discord Developer Portal](https://discord.com/developers/applications), open this bot's application, go to **Bot > Privileged Gateway Intents**, and enable **Server Members** and **Message Content**.
+4.  Confirm the bot has **View Channel**, **Send Messages** and **Embed Links** in the welcome channel.
 
 ---
 

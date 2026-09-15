@@ -38,15 +38,26 @@ class FakeAvatar:
     url = "https://cdn.discordapp.com/embed/avatars/0.png"
 
 
+class FakePermissions:
+    def __init__(self, view_channel=True, send_messages=True, embed_links=True):
+        self.view_channel = view_channel
+        self.send_messages = send_messages
+        self.embed_links = embed_links
+
+
 class FakeChannel:
-    def __init__(self, channel_id, name="new-people"):
+    def __init__(self, channel_id, name="new-people", perms=None):
         self.id = channel_id
         self.name = name
         self.mention = "<#{}>".format(channel_id)
         self.sent = []
+        self.perms = perms or FakePermissions()
 
     async def send(self, content=None, embed=None, **kwargs):
         self.sent.append({"content": content, "embed": embed})
+
+    def permissions_for(self, member):
+        return self.perms
 
 
 class FakeGuild:
@@ -87,7 +98,13 @@ class WelcomeBotTestCase(unittest.IsolatedAsyncioTestCase):
             os.environ[k] = v
         self.channel = FakeChannel(WELCOME_CHANNEL_ID)
         self.guild = FakeGuild([self.channel])
-        self.bot = WelcomeBot(intents=discord.Intents.none())
+        # members=True because diagnose() reports it as a problem when it is off.
+        # Keep our own reference: client.intents hands back a COPY, so mutating that
+        # is a no-op and the original is the object the client actually reads.
+        self.intents = discord.Intents.default()
+        self.intents.members = True
+        self.intents.message_content = True
+        self.bot = WelcomeBot(intents=self.intents)
 
     def tearDown(self):
         for k, v in self._saved.items():
@@ -239,6 +256,127 @@ class DebounceStateTests(WelcomeBotTestCase):
             len(self.welcomes()), 1,
             "a failed send should not poison the debounce and block the retry",
         )
+
+
+# --- Diagnostics: the surfaces that exist to explain silence -----------------
+
+EMOJI_RANGES = (
+    (0x1F300, 0x1FAFF),
+    (0x2600, 0x27BF),
+    (0x2B00, 0x2BFF),
+    (0x2705, 0x2705),
+    (0x274C, 0x274C),
+    (0x26A0, 0x26A0),
+)
+
+
+def contains_emoji(text):
+    for char in text:
+        code = ord(char)
+        if any(low <= code <= high for low, high in EMOJI_RANGES):
+            return True
+    return False
+
+
+def embed_text(embed):
+    parts = [embed.title or "", embed.description or "", embed.footer.text or ""]
+    for field in embed.fields:
+        parts.append(field.name or "")
+        parts.append(field.value or "")
+    return "\n".join(parts)
+
+
+class DiagnoseTests(WelcomeBotTestCase):
+    async def test_healthy_config_reports_no_problems(self):
+        self.assertEqual(self.bot.diagnose(self.guild), [])
+
+    async def test_reports_blank_channel_id(self):
+        os.environ["WELCOME_CHANNEL_ID"] = ""
+        problems = self.bot.diagnose(self.guild)
+        self.assertTrue(any("WELCOME_CHANNEL_ID" in p for p in problems), problems)
+
+    async def test_reports_nonexistent_channel_id(self):
+        os.environ["WELCOME_CHANNEL_ID"] = "999999999999999999"
+        problems = self.bot.diagnose(self.guild)
+        self.assertTrue(any("does not exist in this server" in p for p in problems), problems)
+
+    async def test_reports_missing_send_permission(self):
+        self.channel.perms = FakePermissions(send_messages=False)
+        problems = self.bot.diagnose(self.guild)
+        self.assertTrue(any("Send Messages" in p for p in problems), problems)
+
+    async def test_reports_missing_view_permission(self):
+        self.channel.perms = FakePermissions(view_channel=False)
+        problems = self.bot.diagnose(self.guild)
+        self.assertTrue(any("View Channel" in p for p in problems), problems)
+
+    async def test_reports_missing_embed_permission(self):
+        self.channel.perms = FakePermissions(embed_links=False)
+        problems = self.bot.diagnose(self.guild)
+        self.assertTrue(any("Embed Links" in p for p in problems), problems)
+
+    async def test_reports_no_channel_at_all(self):
+        problems = self.bot.diagnose(FakeGuild([]))
+        self.assertTrue(any("No welcome channel found" in p for p in problems), problems)
+
+    async def test_reports_members_intent_off(self):
+        self.intents.members = False
+        problems = self.bot.diagnose(self.guild)
+        self.assertTrue(any("Server Members intent" in p for p in problems), problems)
+
+    async def test_resolve_returns_configured_channel(self):
+        self.assertIs(self.bot.resolve_welcome_channel(self.guild), self.channel)
+
+    async def test_resolve_falls_back_to_name(self):
+        other = FakeChannel(4242, name="welcome")
+        guild = FakeGuild([other])
+        self.assertIs(self.bot.resolve_welcome_channel(guild), other)
+
+    async def test_resolve_returns_none_when_nothing_matches(self):
+        self.assertIsNone(self.bot.resolve_welcome_channel(FakeGuild([FakeChannel(1, name="random")])))
+
+
+class DiagnosticEmbedTests(WelcomeBotTestCase):
+    async def test_check_embed_says_ok_when_healthy(self):
+        embed = self.bot.check_embed(self.guild)
+        self.assertIn("No problems found", embed_text(embed))
+
+    async def test_check_embed_lists_problems(self):
+        os.environ["WELCOME_CHANNEL_ID"] = ""
+        embed = self.bot.check_embed(self.guild)
+        self.assertIn("WELCOME_CHANNEL_ID", embed_text(embed))
+
+    async def test_check_embed_names_the_channel(self):
+        embed = self.bot.check_embed(self.guild)
+        self.assertIn(self.channel.mention, embed_text(embed))
+
+    async def test_panel_embed_reports_health(self):
+        embed = self.bot.panel_embed(self.guild)
+        self.assertIn("OK", embed_text(embed))
+
+    async def test_panel_embed_points_role_work_elsewhere(self):
+        embed = self.bot.panel_embed(self.guild)
+        names = [f.name for f in embed.fields]
+        self.assertIn("Role handling", names)
+        self.assertIn("Role Bot", embed_text(embed))
+
+    async def test_panel_uses_configured_nickname(self):
+        embed = self.bot.panel_embed(self.guild)
+        self.assertIn(bot_config.WELCOME_BOT_NICKNAME, embed.title)
+
+    async def test_diagnostics_contain_no_emoji(self):
+        # Emoji were removed from the bot UIs on request; keep it that way.
+        for embed in (self.bot.check_embed(self.guild), self.bot.panel_embed(self.guild)):
+            self.assertFalse(
+                contains_emoji(embed_text(embed)),
+                "emoji found in: {}".format(embed_text(embed)),
+            )
+
+    async def test_diagnostics_contain_no_emoji_when_unhealthy(self):
+        os.environ["WELCOME_CHANNEL_ID"] = ""
+        self.channel.perms = FakePermissions(send_messages=False)
+        for embed in (self.bot.check_embed(self.guild), self.bot.panel_embed(self.guild)):
+            self.assertFalse(contains_emoji(embed_text(embed)))
 
 
 class _FakeResponse:
