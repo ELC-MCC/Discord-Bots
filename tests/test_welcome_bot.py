@@ -22,6 +22,7 @@ WELCOME_ENV_KEYS = [
     "GENERAL_CHANNEL_ID",
     "INTRODUCTIONS_CHANNEL_ID",
     "MAKER_GENERAL_CHANNEL_ID",
+    "ADMIN_CHANNEL_ID",
 ]
 
 GOOD_ENV = {
@@ -32,6 +33,7 @@ GOOD_ENV = {
 }
 
 WELCOME_CHANNEL_ID = int(GOOD_ENV["WELCOME_CHANNEL_ID"])
+ADMIN_CHANNEL_ID = 999999999999999999
 
 
 class FakeAvatar:
@@ -46,14 +48,19 @@ class FakePermissions:
 
 
 class FakeChannel:
-    def __init__(self, channel_id, name="new-people", perms=None):
+    def __init__(self, channel_id, name="new-people", perms=None, fail=None):
         self.id = channel_id
         self.name = name
         self.mention = "<#{}>".format(channel_id)
         self.sent = []
         self.perms = perms or FakePermissions()
+        self.guild = None
+        self.fail = fail
 
     async def send(self, content=None, embed=None, **kwargs):
+        # fail only the welcome (embed) send, so admin alerts still get through
+        if self.fail is not None and embed is not None:
+            raise self.fail
         self.sent.append({"content": content, "embed": embed})
 
     def permissions_for(self, member):
@@ -66,6 +73,8 @@ class FakeGuild:
         self._channels = {c.id: c for c in channels}
         self.text_channels = list(channels)
         self.me = _FakeMe()
+        for channel in channels:
+            channel.guild = self
 
     def get_channel(self, channel_id):
         return self._channels.get(channel_id)
@@ -377,6 +386,58 @@ class DiagnosticEmbedTests(WelcomeBotTestCase):
         self.channel.perms = FakePermissions(send_messages=False)
         for embed in (self.bot.check_embed(self.guild), self.bot.panel_embed(self.guild)):
             self.assertFalse(contains_emoji(embed_text(embed)))
+
+
+class PermissionAlertTests(WelcomeBotTestCase):
+    """A blocked welcome must cost the admins a visible message, not just a log line."""
+
+    def setUp(self):
+        super().setUp()
+        self.admin_channel = FakeChannel(ADMIN_CHANNEL_ID, name="admin")
+        self.guild._channels[ADMIN_CHANNEL_ID] = self.admin_channel
+        self.guild.text_channels.append(self.admin_channel)
+        self.admin_channel.guild = self.guild
+        os.environ["ADMIN_CHANNEL_ID"] = str(ADMIN_CHANNEL_ID)
+        self.channel.fail = discord.Forbidden(_FakeResponse(), "missing perms")
+
+    async def test_blocked_welcome_alerts_the_admins(self):
+        await self.bot.on_member_join(self.member(1001))
+        self.assertEqual(len(self.admin_channel.sent), 1, "admins should be told")
+        self.assertIn("cannot post in", self.admin_channel.sent[0]["content"])
+
+    async def test_alert_is_sent_only_once_per_channel(self):
+        await self.bot.on_member_join(self.member(1001))
+        await self.bot.on_member_join(self.member(1002))
+        await self.bot.on_member_join(self.member(1003))
+        self.assertEqual(len(self.admin_channel.sent), 1, "must not spam on every join")
+
+    async def test_no_alert_when_admin_channel_not_configured(self):
+        os.environ.pop("ADMIN_CHANNEL_ID", None)
+        await self.bot.on_member_join(self.member(1001))  # must not raise
+
+    async def test_no_alert_when_admin_channel_missing_from_guild(self):
+        del self.guild._channels[ADMIN_CHANNEL_ID]
+        await self.bot.on_member_join(self.member(1001))  # must not raise
+
+    async def test_blocked_welcome_is_not_recorded_so_retry_works(self):
+        member = self.member(1001)
+        await self.bot.on_member_join(member)
+        self.assertNotIn(member.id, self.bot.last_welcome_time)
+
+        self.channel.fail = None
+        await self.bot.on_member_update(self.member(1001, pending=True), member)
+        self.assertEqual(len(self.welcomes()), 1, "retry should succeed once permissions are back")
+
+    async def test_failure_log_line_is_greppable(self):
+        import contextlib
+        import io
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            await self.bot.on_member_join(self.member(1001))
+        output = buf.getvalue()
+        self.assertIn("WelcomeBot problem:", output)
+        self.assertIn("Send Messages and Embed Links", output)
 
 
 class _FakeResponse:

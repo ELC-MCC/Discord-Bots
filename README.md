@@ -71,7 +71,9 @@ Ensures every new member receives a warm welcome and direction.
 1.  Confirm the bot is actually running. On startup it logs either `[startup] Welcome Bot: SKIPPED. WELCOME_BOT_TOKEN is empty or missing in .env` or a `WelcomeBot: ready in <server>` line. A blank token means this bot never starts while the others keep working.
 2.  Run `!welcome_check` in the server and read the problems it lists.
 3.  In the [Discord Developer Portal](https://discord.com/developers/applications), open this bot's application, go to **Bot > Privileged Gateway Intents**, and enable **Server Members** and **Message Content**.
-4.  Confirm the bot has **View Channel**, **Send Messages** and **Embed Links** in the welcome channel.
+4.  Confirm the bot has **View Channel**, **Send Messages** and **Embed Links** in the welcome channel. Category permission changes cascade into the channel, so check the parent category too.
+
+When a welcome is blocked by permissions, the bot posts a one-time notice in `ADMIN_CHANNEL_ID` (if set) so a permission change cannot go unnoticed, and every blocked attempt is logged with a `WelcomeBot problem:` prefix that can be grepped out of the Stream Bot noise. Welcomes are retried on the next event once the permission is restored.
 
 ---
 

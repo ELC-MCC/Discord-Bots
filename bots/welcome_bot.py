@@ -39,6 +39,7 @@ class WelcomeBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.last_welcome_time = {}  # member ID -> time of last successful welcome
+        self.alerted_channels = set()  # channels we have already warned the admins about
 
     def already_welcomed(self, member_id):
         last = self.last_welcome_time.get(member_id)
@@ -135,7 +136,8 @@ class WelcomeBot(discord.Client):
             if problems:
                 print(f"WelcomeBot: {len(problems)} problem(s) found in {guild.name}:")
                 for problem in problems:
-                    print("  - " + problem.replace("`", ""))
+                    # Prefix every line so these can be grepped out of the Stream Bot noise.
+                    print("WelcomeBot problem: " + problem.replace("`", ""))
             else:
                 channel = self.resolve_welcome_channel(guild)
                 print(f"WelcomeBot: ready in {guild.name}, welcomes will post to #{channel.name}")
@@ -227,13 +229,44 @@ class WelcomeBot(discord.Client):
         try:
             await channel.send(embed=embed)
         except discord.Forbidden:
-            print(f"Error: Missing permissions to send messages in #{channel.name}")
+            print(f"WelcomeBot problem: cannot post in #{channel.name}. The bot needs "
+                  f"Send Messages and Embed Links there. Welcome for {member.name} was skipped.")
+            await self.alert_permissions(channel)
         except Exception as e:
-            print(f"Error sending welcome message: {e}")
+            print(f"WelcomeBot problem: sending the welcome for {member.name} failed: {e}")
         else:
             # Record only after a real send, so a failure can still be retried.
             self.remember_welcome(member.id)
             print(f"Sent welcome message for {member.name} in #{channel.name}")
+
+    async def alert_permissions(self, channel):
+        """Tell the admins once per channel when welcoming is blocked.
+
+        Otherwise the only evidence is a log line buried in the Stream Bot output,
+        which is exactly how this failed silently for several days.
+        """
+        channel_id = getattr(channel, "id", 0)
+        if channel_id in self.alerted_channels:
+            return
+        self.alerted_channels.add(channel_id)
+
+        admin_channel_id = env_channel_id('ADMIN_CHANNEL_ID')
+        if not admin_channel_id:
+            return
+
+        guild = getattr(channel, "guild", None)
+        admin_channel = guild.get_channel(admin_channel_id) if guild else None
+        if admin_channel is None:
+            return
+
+        try:
+            await admin_channel.send(
+                f"Welcome Bot cannot post in {channel.mention}. It is missing "
+                f"Send Messages or Embed Links, so new members are not being greeted. "
+                f"Grant both to the bot's role in that channel."
+            )
+        except Exception as exc:
+            print(f"WelcomeBot: could not post the permission alert: {exc}")
 
     async def on_message(self, message):
         if message.author == self.user or not message.content:
