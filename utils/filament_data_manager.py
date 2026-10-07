@@ -118,7 +118,7 @@ class FilamentDataManager:
             return True
         return False
 
-    def log_usage(self, user_name, filament_id, amount_used):
+    def log_usage(self, user_name, filament_id, amount_used, first_name=None, last_name=None, print_description=None):
         """Records a usage event."""
         # Find filament details for the log
         self.inventory = self.load_json(self.inventory_file)
@@ -135,6 +135,9 @@ class FilamentDataManager:
             "id": new_id,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "user": user_name,
+            "first_name": first_name or "",
+            "last_name": last_name or "",
+            "print_description": print_description or "",
             "filament_id": filament_id,
             "filament_desc": filament_str,
             "amount_used": amount_used
@@ -199,17 +202,18 @@ class FilamentDataManager:
             return "No logs available."
         
         # CSV Header
-        csv_content = "Timestamp,User,Filament,Amount Used (g)\n"
+        csv_content = "Timestamp,User,Filament,Print Description,Amount Used (g)\n"
         
         for log in self.logs:
             ts = log.get('timestamp', '')
             user = log.get('user', 'Unknown')
             filament = log.get('filament_desc', 'Unknown')
+            print_desc = log.get('print_description', '')
             amount = log.get('amount_used', 0)
             
             # Simple manual CSV formatting to avoid imports if possible, 
             # but wrapping in quotes handles commas in names
-            csv_content += f'"{ts}","{user}","{filament}",{amount}\n'
+            csv_content += f'"{ts}","{user}","{filament}","{print_desc}",{amount}\n'
             
         return csv_content
 

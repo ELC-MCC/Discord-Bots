@@ -26,7 +26,9 @@ def save_config(config):
 
 # --- Modals ---
 class LogUsageModal(ui.Modal, title="Log Filament Usage"):
-    first_name = ui.TextInput(label="First Name", placeholder="Enter your name", min_length=1, max_length=50)
+    first_name = ui.TextInput(label="First Name", placeholder="Enter your first name", min_length=1, max_length=50)
+    last_name = ui.TextInput(label="Last Name", placeholder="Enter your last name", min_length=1, max_length=50)
+    print_desc = ui.TextInput(label="What are you printing?", placeholder="e.g., Robot chassis brackets", min_length=1, max_length=100)
     amount = ui.TextInput(label="Amount Used (g)", placeholder="e.g. 50.5", min_length=1, max_length=10)
 
     def __init__(self, bot, filament_id, filament_name):
@@ -39,15 +41,22 @@ class LogUsageModal(ui.Modal, title="Log Filament Usage"):
         try:
             amount_val = float(self.amount.value)
             
-            # Combine name and user for logging
-            user_display = f"{self.first_name.value} ({interaction.user.display_name})"
+            # Combine first and last name for the log entry
+            user_display = f"{self.first_name.value} {self.last_name.value}".strip()
             
-            self.bot.data_manager.log_usage(user_display, self.filament_id, amount_val)
+            self.bot.data_manager.log_usage(
+                user_display,
+                self.filament_id,
+                amount_val,
+                first_name=self.first_name.value,
+                last_name=self.last_name.value,
+                print_description=self.print_desc.value
+            )
             self.bot.data_manager.update_filament_weight(self.filament_id, amount_val)
             
             # Send a regular message that auto-deletes instead of ephemeral
             await interaction.response.send_message(
-                f"Logged **{amount_val}g** usage for **{self.filament_name}** by **{self.first_name.value}**.",
+                f"Logged **{amount_val}g** of **{self.filament_name}** by **{user_display}** for: {self.print_desc.value}.",
                 delete_after=5
             )
             # Trigger dashboard updates
