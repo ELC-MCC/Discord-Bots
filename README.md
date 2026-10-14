@@ -149,11 +149,21 @@ Manages 3D printer filament inventory, tracking usage and remaining weights.
 *   **Consumption Stats:** Live tracking of Daily, Weekly, and Monthly filament usage.
 *   **Log Export:** Admins can export log history to CSV directly from Discord (Admin Dashboard).
 *   **Data Compatibility:** Uses the same JSON database structure as the ELC Filament Tracker desktop app.
+*   **Project Pools:** Filament can be allocated to a named project (see below) while staying in the main inventory.
 
 #### **Command Reference:**
 | Command | Permission | Description |
 | :--- | :--- | :--- |
 | `!filament setup` | **Admin** | Deploys the Public and Admin dashboards to the channels specified in `.env`. |
+| `!wheelchair setup` | **Admin** | Deploys the 3D Printed Wheelchair project dashboard and pool controls to `PROJECT_WHEELCHAIR_CHANNEL_ID`. |
+
+#### **Project: 3D Printed Wheelchair**
+
+A project pool is a tag on the main inventory, not a second inventory. A spool allocated to a project is still an ordinary main-pool spool, so it appears in the main dashboard and the main log picker as well as in the project tracker. Usage logged against a project is written to the same log file, so it is counted in the main Daily/Weekly/Monthly/Total stats as well as in a project-only subtotal.
+
+*   **Logging is PIN gated.** `PROJECT_WHEELCHAIR_PIN` lives in `.env` on the server only. It is never posted, never embedded, and never echoed back. The filament picker only appears after the PIN checks out, and every reply on that path is ephemeral, so nothing about the flow is visible to anyone else in the server.
+*   **Pool management** is admin only: add a brand new spool straight into the pool, allocate an existing spool, or unallocate one (which leaves it in the main inventory).
+*   `PROJECT_WHEELCHAIR_CHANNEL_ID` and `PROJECT_WHEELCHAIR_PIN` must be added to `.env` by hand on the server, since `.env` is not version controlled.
 
 ---
 

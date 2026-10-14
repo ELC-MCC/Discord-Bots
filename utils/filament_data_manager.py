@@ -74,8 +74,13 @@ class FilamentDataManager:
                 return True
         return False
 
-    def add_inventory_item(self, type_name, brand, color, weight, admin_only=False):
-        """Adds a new filament reel to inventory."""
+    def add_inventory_item(self, type_name, brand, color, weight, admin_only=False, projects=None):
+        """Adds a new filament reel to inventory.
+
+        `projects` tags the spool as belonging to one or more project pools. The
+        tag is purely additive: the spool is still an ordinary main-pool spool and
+        stays in every main-pool listing.
+        """
         self.inventory = self.load_json(self.inventory_file) # Ensure fresh
         new_id = 1
         if self.inventory:
@@ -87,7 +92,8 @@ class FilamentDataManager:
             "brand": brand,
             "color": color,
             "weight_g": round(weight, 2),
-            "admin_only": admin_only
+            "admin_only": admin_only,
+            "projects": sorted(set(projects or []))
         }
         self.inventory.append(new_item)
         self.save_json(self.inventory_file, self.inventory)
@@ -118,7 +124,37 @@ class FilamentDataManager:
             return True
         return False
 
-    def log_usage(self, user_name, filament_id, amount_used, first_name=None, last_name=None, print_description=None):
+    # --- Project pools ---
+    #
+    # A project pool is a tag on the shared inventory, not a second inventory.
+    # That is deliberate: it makes "the project pool is part of the main pool"
+    # true by construction, rather than two lists that can drift apart.
+
+    def get_project_inventory(self, project):
+        """Inventory items tagged as belonging to a project pool."""
+        if not project:
+            return []
+        self.inventory = self.load_json(self.inventory_file)
+        return [item for item in self.inventory if project in item.get('projects', [])]
+
+    def set_project_membership(self, item_id, project, member=True):
+        """Add or remove a project tag on an existing inventory item."""
+        if not project:
+            return False
+        self.inventory = self.load_json(self.inventory_file)
+        for item in self.inventory:
+            if item['id'] == item_id:
+                tags = set(item.get('projects', []))
+                if member:
+                    tags.add(project)
+                else:
+                    tags.discard(project)
+                item['projects'] = sorted(tags)
+                self.save_json(self.inventory_file, self.inventory)
+                return True
+        return False
+
+    def log_usage(self, user_name, filament_id, amount_used, first_name=None, last_name=None, print_description=None, project=None):
         """Records a usage event."""
         # Find filament details for the log
         self.inventory = self.load_json(self.inventory_file)
@@ -138,6 +174,7 @@ class FilamentDataManager:
             "first_name": first_name or "",
             "last_name": last_name or "",
             "print_description": print_description or "",
+            "project": project or "",
             "filament_id": filament_id,
             "filament_desc": filament_str,
             "amount_used": amount_used
@@ -146,9 +183,8 @@ class FilamentDataManager:
         self.logs.append(log_entry)
         self.save_json(self.logs_file, self.logs)
 
-    def get_consumption_stats(self):
-        """Calculates total usage for current Day, Week, and Month."""
-        self.logs = self.load_json(self.logs_file) # Ensure fresh
+    def _consumption_stats(self, logs):
+        """Calculates total usage for current Day, Week, and Month across `logs`."""
         now = datetime.now()
         current_day = now.strftime("%Y-%m-%d")
         current_week = now.strftime("%Y-W%U")
@@ -161,7 +197,7 @@ class FilamentDataManager:
             "total": 0.0
         }
 
-        for log in self.logs:
+        for log in logs:
             try:
                 amt = float(log.get('amount_used', 0))
             except (ValueError, TypeError):
@@ -195,25 +231,50 @@ class FilamentDataManager:
         
         return stats
 
-    def export_logs_to_csv(self):
-        """Converts logs to CSV string."""
+    def get_consumption_stats(self):
+        """Totals for every log, project logs included.
+
+        Project usage is written to the same log file with a `project` tag, so it
+        feeds these numbers with no extra aggregation step. That is what makes
+        project usage show up in the main stats.
+        """
+        self.logs = self.load_json(self.logs_file) # Ensure fresh
+        return self._consumption_stats(self.logs)
+
+    def get_project_logs(self, project):
+        """Log entries charged to one project."""
+        if not project:
+            return []
         self.logs = self.load_json(self.logs_file)
+        self._ensure_log_ids()
+        return [log for log in self.logs if log.get('project') == project]
+
+    def get_project_stats(self, project):
+        """Day/Week/Month/Total usage for one project only."""
+        return self._consumption_stats(self.get_project_logs(project))
+
+    def export_logs_to_csv(self, project=None):
+        """Converts logs to CSV string. Pass `project` to export only that project."""
+        self.logs = self.load_json(self.logs_file)
+        if project:
+            self.logs = [log for log in self.logs if log.get('project') == project]
         if not self.logs:
             return "No logs available."
         
         # CSV Header
-        csv_content = "Timestamp,User,Filament,Print Description,Amount Used (g)\n"
+        csv_content = "Timestamp,User,Filament,Print Description,Project,Amount Used (g)\n"
         
         for log in self.logs:
             ts = log.get('timestamp', '')
             user = log.get('user', 'Unknown')
             filament = log.get('filament_desc', 'Unknown')
             print_desc = log.get('print_description', '')
+            proj = log.get('project', '')
             amount = log.get('amount_used', 0)
-            
+
             # Simple manual CSV formatting to avoid imports if possible, 
             # but wrapping in quotes handles commas in names
-            csv_content += f'"{ts}","{user}","{filament}","{print_desc}",{amount}\n'
+            csv_content += f'"{ts}","{user}","{filament}","{print_desc}","{proj}",{amount}\n'
             
         return csv_content
 
