@@ -1200,11 +1200,19 @@ class FilamentBot(discord.Client):
         if message.author == self.user:
             return
 
+        # Command spelling: underscores are folded to spaces for command matching.
+        # The repo's own !admin_setup uses an underscore while the other commands
+        # use a space, so !wheelchair_setup is the natural thing to type. An
+        # unmatched command is completely invisible rather than an error, because
+        # the dashboard channels auto-delete user messages, so a typo looks like
+        # the bot being broken. Accepting both spellings costs nothing.
+        cmd = message.content.replace('_', ' ').strip()
+
         # Universal Admin Setup
-        if message.content.startswith('!admin_setup'):
+        if cmd.startswith('!admin setup'):
             if not message.author.guild_permissions.administrator:
                  return 
-            
+
             # Check configured admin channel
             admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
             if admin_channel_id and str(message.channel.id) != str(admin_channel_id):
@@ -1224,8 +1232,8 @@ class FilamentBot(discord.Client):
 
         # Project setup: !project setup <key>, with !wheelchair setup as an alias
         project_key = None
-        if message.content.startswith('!project setup'):
-            parts = message.content.split()
+        if cmd.startswith('!project setup'):
+            parts = cmd.split()
             if len(parts) < 3 or not parts[2].strip():
                 await message.channel.send(
                     "Usage: `!project setup <key>`. Known projects: " + ", ".join(PROJECTS))
@@ -1235,7 +1243,7 @@ class FilamentBot(discord.Client):
                 await message.channel.send(
                     f"❌ Unknown project `{project_key}`. Known projects: " + ", ".join(PROJECTS))
                 return
-        elif message.content.startswith('!wheelchair setup'):
+        elif cmd.startswith('!wheelchair setup'):
             project_key = PROJECT_KEY
 
         if project_key:
@@ -1278,7 +1286,7 @@ class FilamentBot(discord.Client):
             return
 
         # Setup Command
-        if message.content.startswith('!filament setup'):
+        if cmd.startswith('!filament setup'):
             if not message.author.guild_permissions.administrator:
                 await message.channel.send("❌ Admin permissions required.")
                 return
