@@ -161,9 +161,9 @@ Manages 3D printer filament inventory, tracking usage and remaining weights.
 
 A project pool is a tag on the main inventory, not a second inventory. A spool allocated to a project is still an ordinary main-pool spool, so it appears in the main dashboard and the main log picker as well as in the project tracker. Usage logged against a project is written to the same log file, so it is counted in the main Daily/Weekly/Monthly/Total stats as well as in a project-only subtotal.
 
-*   **Adding filament:** the main admin panel's `Add Filament` button first asks which pool the spool belongs to (main pool only, or any registered project), so project spools can be created from either panel.
+*   **Adding filament:** the main admin panel's `Add Filament` button first asks which pool the spool belongs to (main pool only, or any registered project), so project spools can be created from the admin panel.
 *   **Logging is PIN gated.** `PROJECT_WHEELCHAIR_PIN` lives in `.env` on the server only. It is never posted, never embedded, and never echoed back. The filament picker only appears after the PIN checks out, and every reply on that path is ephemeral, so nothing about the flow is visible to anyone else in the server. Each project has its own PIN.
-*   **Pool management** is admin only: add a brand new spool straight into the pool, allocate an existing spool, or unallocate one (which leaves it in the main inventory).
+*   **The project channel carries only the `Log Project Usage` button.** Pool management is not posted there; it is reached from the main admin panel's `Project Pools` button, which is admin only and replies privately. From there you can register a new spool straight into a pool, allocate an existing spool, unallocate one (which leaves it in the main inventory), or export that project's usage log.
 *   `PROJECT_WHEELCHAIR_CHANNEL_ID` and `PROJECT_WHEELCHAIR_PIN` must be added to `.env` by hand on the server, since `.env` is not version controlled.
 
 #### **Adding Another Project**
@@ -182,7 +182,7 @@ PROJECT_GOKART_CHANNEL_ID=
 PROJECT_GOKART_PIN=
 ```
 
-Then run `!project setup gokart` in that project's channel. The env var names, the pool pickers, the dashboards, the PIN gate and the button IDs are all derived from the project key, so no other code changes are needed.
+Then run `!project setup gokart` in that project's channel. The env var names, the pool pickers, the dashboards, the PIN gate and the button IDs are all derived from the project key, so no other code changes are needed. `!project setup` posts that project's dashboard only; pool management for every project is reached from the main admin panel.
 
 ---
 

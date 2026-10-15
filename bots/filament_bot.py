@@ -599,6 +599,37 @@ class PoolDestinationSelect(ui.Select):
             AddFilamentModal(self.bot, admin_only=False, projects=projects))
 
 
+class ProjectPickerSelect(ui.Select):
+    """Pick a project, then open its pool controls.
+
+    The project channel carries only the logging button, so pool management is
+    reached from the admin panel instead of from a second message in the project
+    channel.
+    """
+
+    def __init__(self, bot):
+        self.bot = bot
+        options = [
+            discord.SelectOption(
+                label=display,
+                description=f"{len(bot.data_manager.get_project_inventory(key))} spool(s) allocated",
+                value=key,
+            )
+            for key, display in PROJECTS.items()
+        ]
+        super().__init__(placeholder="Select a project...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if not is_admin(interaction):
+            await interaction.response.send_message("Administrator permissions required.", ephemeral=True)
+            return
+        project = self.values[0]
+        await interaction.response.send_message(
+            embed=self.bot.get_project_admin_embed(project),
+            view=ProjectAdminView(self.bot, project),
+            ephemeral=True)
+
+
 class ProjectFilamentSelect(ui.Select):
     """Only filament tagged into one project pool."""
 
@@ -910,6 +941,21 @@ class AdminDashboardView(ui.View):
         view.add_item(select)
         await interaction.response.send_message("⚠️ **SELECT FILAMENT TO DELETE** ⚠️", view=view, ephemeral=True)
 
+    @ui.button(label="Project Pools", style=discord.ButtonStyle.primary, custom_id="filament_admin_project_pools", row=2)
+    async def project_pools_btn(self, interaction: discord.Interaction, button: ui.Button):
+        # Pool management lives here rather than in the project channel, which
+        # carries only the logging button.
+        if not is_admin(interaction):
+            await interaction.response.send_message("Administrator permissions required.", ephemeral=True)
+            return
+        if not PROJECTS:
+            await interaction.response.send_message("No projects are registered.", ephemeral=True)
+            return
+        view = ui.View()
+        view.add_item(ProjectPickerSelect(self.bot))
+        await interaction.response.send_message(
+            "Select a project pool to manage:", view=view, ephemeral=True)
+
     @ui.button(label="Export Logs", style=discord.ButtonStyle.secondary, custom_id="filament_admin_export")
     async def export_logs_btn(self, interaction: discord.Interaction, button: ui.Button):
         csv_data = self.bot.data_manager.export_logs_to_csv()
@@ -966,10 +1012,12 @@ class FilamentBot(discord.Client):
         # Register persistent views so buttons work after restart
         self.add_view(PublicDashboardView(self))
         self.add_view(AdminDashboardView(self))
-        # One dashboard + one pool-controls view per registered project.
+        # One dashboard per registered project. The project channel carries only
+        # the logging button; pool management is reached from the admin panel
+        # instead, so ProjectAdminView is built on demand and needs no persistent
+        # registration here.
         for key in PROJECTS:
             self.add_view(ProjectDashboardView(self, key))
-            self.add_view(ProjectAdminView(self, key))
         self.auto_refresh.start()
 
     @tasks.loop(minutes=1)
@@ -1214,7 +1262,9 @@ class FilamentBot(discord.Client):
                 await message.channel.send(f"❌ Could not find the {display} channel: {e}")
                 return
 
-            # Post the project dashboard (PIN-gated logging)
+            # The project channel gets the dashboard and nothing else. Pool
+            # management lives on the main admin panel, so there is no second
+            # control message here.
             try:
                 project_msg = await project_channel.send(
                     embed=self.get_project_embed(project_key),
@@ -1223,16 +1273,6 @@ class FilamentBot(discord.Client):
                 await message.channel.send(f"✅ {display} dashboard deployed to {project_channel.mention}")
             except Exception as e:
                 await message.channel.send(f"❌ Failed to post the {display} dashboard: {e}")
-
-            # Post the project pool controls
-            try:
-                project_admin_msg = await project_channel.send(
-                    embed=self.get_project_admin_embed(project_key),
-                    view=ProjectAdminView(self, project_key))
-                self.set_project_ids(project_key, admin_message_id=project_admin_msg.id)
-                await message.channel.send(f"✅ {display} pool controls deployed to {project_channel.mention}")
-            except Exception as e:
-                await message.channel.send(f"❌ Failed to post the {display} pool controls: {e}")
 
             save_config(self.config)
             return
