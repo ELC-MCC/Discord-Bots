@@ -155,15 +155,34 @@ Manages 3D printer filament inventory, tracking usage and remaining weights.
 | Command | Permission | Description |
 | :--- | :--- | :--- |
 | `!filament setup` | **Admin** | Deploys the Public and Admin dashboards to the channels specified in `.env`. |
-| `!wheelchair setup` | **Admin** | Deploys the 3D Printed Wheelchair project dashboard and pool controls to `PROJECT_WHEELCHAIR_CHANNEL_ID`. |
+| `!project setup <key>` | **Admin** | Deploys a project's dashboard and pool controls to that project's channel. `!wheelchair setup` is an alias for the default project. |
 
 #### **Project: 3D Printed Wheelchair**
 
 A project pool is a tag on the main inventory, not a second inventory. A spool allocated to a project is still an ordinary main-pool spool, so it appears in the main dashboard and the main log picker as well as in the project tracker. Usage logged against a project is written to the same log file, so it is counted in the main Daily/Weekly/Monthly/Total stats as well as in a project-only subtotal.
 
-*   **Logging is PIN gated.** `PROJECT_WHEELCHAIR_PIN` lives in `.env` on the server only. It is never posted, never embedded, and never echoed back. The filament picker only appears after the PIN checks out, and every reply on that path is ephemeral, so nothing about the flow is visible to anyone else in the server.
+*   **Adding filament:** the main admin panel's `Add Filament` button first asks which pool the spool belongs to (main pool only, or any registered project), so project spools can be created from either panel.
+*   **Logging is PIN gated.** `PROJECT_WHEELCHAIR_PIN` lives in `.env` on the server only. It is never posted, never embedded, and never echoed back. The filament picker only appears after the PIN checks out, and every reply on that path is ephemeral, so nothing about the flow is visible to anyone else in the server. Each project has its own PIN.
 *   **Pool management** is admin only: add a brand new spool straight into the pool, allocate an existing spool, or unallocate one (which leaves it in the main inventory).
 *   `PROJECT_WHEELCHAIR_CHANNEL_ID` and `PROJECT_WHEELCHAIR_PIN` must be added to `.env` by hand on the server, since `.env` is not version controlled.
+
+#### **Adding Another Project**
+
+Add one entry to the `PROJECTS` dict in `bots/filament_bot.py`, then add the matching env vars on the server:
+
+```python
+PROJECTS = {
+    "wheelchair": "3D Printed Wheelchair",
+    "gokart": "ELC Go-Kart",          # <- new
+}
+```
+
+```
+PROJECT_GOKART_CHANNEL_ID=
+PROJECT_GOKART_PIN=
+```
+
+Then run `!project setup gokart` in that project's channel. The env var names, the pool pickers, the dashboards, the PIN gate and the button IDs are all derived from the project key, so no other code changes are needed.
 
 ---
 

@@ -25,16 +25,44 @@ def save_config(config):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=4)
 
-# --- Project: 3D Printed Wheelchair ---
+# --- Project pools ---
 #
 # A project pool is a tag on the shared inventory, not a second inventory. That
 # makes "the project pool is part of the main pool" true by construction: the
 # spool is an ordinary main-pool spool that happens to also be listed here. Same
 # for usage: project logs go into the same log file with a project tag, so they
 # land in the main Daily/Weekly/Monthly/Total with no extra aggregation.
+#
+# PROJECTS is the single source of truth for which pools exist. To add one:
+#   1. add an entry here
+#   2. add PROJECT_<KEY>_CHANNEL_ID and PROJECT_<KEY>_PIN to .env on the server
+#   3. run !project setup <key> in that project's channel
+# Nothing else in this file needs to change: the pickers, the pool listing and
+# the env var names are all derived from this dict.
+PROJECTS = {
+    "wheelchair": "3D Printed Wheelchair",
+}
+
+# The project that has a live dashboard today. Kept as a name so the existing
+# commands and helpers keep working unchanged.
 PROJECT_KEY = "wheelchair"
-PROJECT_DISPLAY_NAME = "3D Printed Wheelchair"
+PROJECT_DISPLAY_NAME = PROJECTS[PROJECT_KEY]
 PROJECT_ACCENT = 0x8E44AD
+
+# Sentinel for "not in any project pool" in the destination picker.
+MAIN_POOL_VALUE = "__main__"
+
+
+def project_display(project):
+    return PROJECTS.get(project, project)
+
+
+def project_channel_env(project):
+    return "PROJECT_{}_CHANNEL_ID".format(project.upper())
+
+
+def project_pin_env(project):
+    return "PROJECT_{}_PIN".format(project.upper())
 
 
 def env_int(name):
@@ -54,18 +82,18 @@ def env_int(name):
         return None
 
 
-def project_pin():
-    """The project PIN, read from .env only. Never rendered into Discord."""
-    return (os.getenv('PROJECT_WHEELCHAIR_PIN') or '').strip()
+def project_pin(project=PROJECT_KEY):
+    """A project PIN, read from .env only. Never rendered into Discord."""
+    return (os.getenv(project_pin_env(project)) or '').strip()
 
 
-def project_pin_configured():
-    return bool(project_pin())
+def project_pin_configured(project=PROJECT_KEY):
+    return bool(project_pin(project))
 
 
-def project_pin_matches(candidate):
+def project_pin_matches(candidate, project=PROJECT_KEY):
     """Constant-time PIN check. A blank configured PIN never matches."""
-    expected = project_pin()
+    expected = project_pin(project)
     if not expected:
         return False
     return hmac.compare_digest(str(candidate or ''), expected)
@@ -126,8 +154,10 @@ class AddFilamentModal(ui.Modal, title="Add New Filament"):
     weight = ui.TextInput(label="Initial Weight (g)", placeholder="e.g., 1000", max_length=10)
 
     def __init__(self, bot, admin_only=False, projects=None):
-        if projects:
-            title = "Add Project Filament"
+        chosen = list(projects or [])
+        if chosen:
+            # Modal titles cap at 45 characters, so trim rather than raise.
+            title = ("Add to " + ", ".join(project_display(p) for p in chosen))[:45]
         elif admin_only:
             title = "Add Admin Filament"
         else:
@@ -135,7 +165,15 @@ class AddFilamentModal(ui.Modal, title="Add New Filament"):
         super().__init__(title=title)
         self.bot = bot
         self.admin_only = admin_only
-        self.projects = list(projects or [])
+        self.projects = chosen
+
+    def pool_label(self):
+        """Human name for the destination, used in the confirmation."""
+        if self.projects:
+            return ", ".join(project_display(p) for p in self.projects) + " pool"
+        if self.admin_only:
+            return "admin pool"
+        return "main pool"
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -148,19 +186,13 @@ class AddFilamentModal(ui.Modal, title="Add New Filament"):
                 self.admin_only,
                 projects=self.projects
             )
-            if self.projects:
-                tag = "(Project) "
-            elif self.admin_only:
-                tag = "(Admin) "
-            else:
-                tag = ""
-
             await interaction.response.send_message(
-                f"Added **{self.brand.value} {self.type_name.value} ({self.color.value})** {tag}with ID **{new_id}**.",
+                f"Added **{self.brand.value} {self.type_name.value} ({self.color.value})** "
+                f"with ID **{new_id}** to the {self.pool_label()}.",
                 delete_after=5
             )
             await self.bot.update_dashboards()
-            
+
         except ValueError:
              await interaction.response.send_message("❌ Invalid weight. Please enter a number.", ephemeral=True)
         except Exception as e:
@@ -518,13 +550,63 @@ def is_admin(interaction):
     return bool(perms and perms.administrator)
 
 
-class ProjectFilamentSelect(ui.Select):
-    """Only filament tagged into the project pool."""
+def scope_custom_ids(view, project):
+    """Rewrite a persistent view's custom_ids to be per-project.
+
+    `custom_id` is fixed by the `@ui.button` decorator at class-definition time,
+    so it is rewritten here instead. That is what lets one class serve several
+    project pools while every button still gets a stable, unique custom_id (which
+    is what persistent views require).
+    """
+    prefix = "filament_project_"
+    for child in view.children:
+        base = getattr(child, "custom_id", None)
+        if base and base.startswith(prefix):
+            child.custom_id = prefix + project + "_" + base[len(prefix):]
+
+
+class PoolDestinationSelect(ui.Select):
+    """Pick which pool a newly added spool belongs to.
+
+    Driven entirely by the PROJECTS registry, so a new project appears here with
+    no change to this class. "Main pool only" is the no-project choice.
+    """
 
     def __init__(self, bot):
         self.bot = bot
+        options = [discord.SelectOption(
+            label="Main pool only",
+            description="Not part of any project",
+            value=MAIN_POOL_VALUE,
+        )]
+        for key, display in PROJECTS.items():
+            count = len(self.bot.data_manager.get_project_inventory(key))
+            options.append(discord.SelectOption(
+                label=f"Project: {display}",
+                description=f"{count} spool(s) currently allocated",
+                value=key,
+            ))
+        super().__init__(placeholder="Where should this spool go?",
+                         min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if not is_admin(interaction):
+            await interaction.response.send_message("Administrator permissions required.", ephemeral=True)
+            return
+        choice = self.values[0]
+        projects = [] if choice == MAIN_POOL_VALUE else [choice]
+        await interaction.response.send_modal(
+            AddFilamentModal(self.bot, admin_only=False, projects=projects))
+
+
+class ProjectFilamentSelect(ui.Select):
+    """Only filament tagged into one project pool."""
+
+    def __init__(self, bot, project=PROJECT_KEY):
+        self.bot = bot
+        self.project = project
         options = []
-        inventory = self.bot.data_manager.get_project_inventory(PROJECT_KEY)
+        inventory = self.bot.data_manager.get_project_inventory(project)
         filtered = [i for i in inventory if not i.get('admin_only', False)]
         sorted_inv = sorted(filtered, key=lambda x: (x.get('type', ''), x.get('color', '')))
 
@@ -556,11 +638,11 @@ class ProjectFilamentSelect(ui.Select):
         name = f"{item['color']} {item['type']}" if item else "Unknown"
 
         await interaction.response.send_modal(
-            LogUsageModal(self.bot, filament_id, name, project=PROJECT_KEY))
+            LogUsageModal(self.bot, filament_id, name, project=self.project))
 
 
-class ProjectPinModal(ui.Modal, title="3D Printed Wheelchair Access"):
-    """PIN gate for project usage.
+class ProjectPinModal(ui.Modal):
+    """PIN gate for one project's usage.
 
     The PIN itself is never echoed back and this modal's contents are only ever
     seen by the person who opened it, which is what keeps it out of the server.
@@ -568,27 +650,28 @@ class ProjectPinModal(ui.Modal, title="3D Printed Wheelchair Access"):
 
     pin = ui.TextInput(label="Project PIN", placeholder="Enter the project PIN", min_length=1, max_length=64)
 
-    def __init__(self, bot):
-        super().__init__()
+    def __init__(self, bot, project=PROJECT_KEY):
+        super().__init__(title=("{} Access".format(project_display(project)))[:45])
         self.bot = bot
+        self.project = project
 
     async def on_submit(self, interaction: discord.Interaction):
-        if not project_pin_configured():
+        if not project_pin_configured(self.project):
             await interaction.response.send_message(
-                "Project logging is not configured on the server (PROJECT_WHEELCHAIR_PIN is unset). "
+                f"Project logging is not configured on the server ({project_pin_env(self.project)} is unset). "
                 "Ask an officer.",
                 ephemeral=True
             )
             return
 
-        if not project_pin_matches(self.pin.value):
+        if not project_pin_matches(self.pin.value, self.project):
             # Deliberately vague: no hint about length or characters.
-            print(f"ProjectPin: rejected a PIN attempt for the {PROJECT_DISPLAY_NAME} project.")
+            print(f"ProjectPin: rejected a PIN attempt for the {project_display(self.project)} project.")
             await interaction.response.send_message("Incorrect PIN.", ephemeral=True)
             return
 
         view = ui.View()
-        select = ProjectFilamentSelect(self.bot)
+        select = ProjectFilamentSelect(self.bot, self.project)
         if not select.options or select.options[0].value == "-1":
             await interaction.response.send_message(
                 "Access granted, but no filament is allocated to the project pool yet.", ephemeral=True)
@@ -599,13 +682,14 @@ class ProjectPinModal(ui.Modal, title="3D Printed Wheelchair Access"):
 
 
 class AttachToProjectSelect(ui.Select):
-    """Tag an existing main-pool spool into the project pool."""
+    """Tag an existing main-pool spool into one project pool."""
 
-    def __init__(self, bot):
+    def __init__(self, bot, project=PROJECT_KEY):
         self.bot = bot
+        self.project = project
         options = []
         inventory = self.bot.data_manager.get_inventory()
-        available = [i for i in inventory if PROJECT_KEY not in i.get('projects', [])]
+        available = [i for i in inventory if project not in i.get('projects', [])]
         sorted_inv = sorted(available, key=lambda x: (x.get('brand', ''), x.get('type', ''), x.get('color', '')))
 
         for item in sorted_inv:
@@ -633,10 +717,10 @@ class AttachToProjectSelect(ui.Select):
             return
         inventory = self.bot.data_manager.get_inventory()
         item = next((x for x in inventory if x['id'] == item_id), None)
-        success = self.bot.data_manager.set_project_membership(item_id, PROJECT_KEY, True)
+        success = self.bot.data_manager.set_project_membership(item_id, self.project, True)
         if success and item:
             await interaction.response.send_message(
-                f"Added **{item['brand']} {item['type']} - {item['color']}** to the {PROJECT_DISPLAY_NAME} pool. "
+                f"Added **{item['brand']} {item['type']} - {item['color']}** to the {project_display(self.project)} pool. "
                 f"It stays in the main pool.",
                 ephemeral=True
             )
@@ -646,12 +730,13 @@ class AttachToProjectSelect(ui.Select):
 
 
 class DetachFromProjectSelect(ui.Select):
-    """Remove a spool from the project pool. It remains in the main pool."""
+    """Remove a spool from one project pool. It remains in the main pool."""
 
-    def __init__(self, bot):
+    def __init__(self, bot, project=PROJECT_KEY):
         self.bot = bot
+        self.project = project
         options = []
-        inventory = self.bot.data_manager.get_project_inventory(PROJECT_KEY)
+        inventory = self.bot.data_manager.get_project_inventory(project)
         sorted_inv = sorted(inventory, key=lambda x: (x.get('brand', ''), x.get('type', ''), x.get('color', '')))
 
         for item in sorted_inv:
@@ -680,10 +765,10 @@ class DetachFromProjectSelect(ui.Select):
             return
         inventory = self.bot.data_manager.get_inventory()
         item = next((x for x in inventory if x['id'] == item_id), None)
-        success = self.bot.data_manager.set_project_membership(item_id, PROJECT_KEY, False)
+        success = self.bot.data_manager.set_project_membership(item_id, self.project, False)
         if success and item:
             await interaction.response.send_message(
-                f"Removed **{item['brand']} {item['type']} - {item['color']}** from the {PROJECT_DISPLAY_NAME} pool. "
+                f"Removed **{item['brand']} {item['type']} - {item['color']}** from the {project_display(self.project)} pool. "
                 f"It is still in the main pool.",
                 ephemeral=True
             )
@@ -693,20 +778,24 @@ class DetachFromProjectSelect(ui.Select):
 
 
 class ProjectDashboardView(ui.View):
-    def __init__(self, bot):
+    def __init__(self, bot, project=PROJECT_KEY):
         super().__init__(timeout=None)
         self.bot = bot
+        self.project = project
+        scope_custom_ids(self, project)
 
     @ui.button(label="Log Project Usage", style=discord.ButtonStyle.success, custom_id="filament_project_log")
     async def log_project_usage_btn(self, interaction: discord.Interaction, button: ui.Button):
         # PIN modal first; the filament picker only appears once the PIN checks out.
-        await interaction.response.send_modal(ProjectPinModal(self.bot))
+        await interaction.response.send_modal(ProjectPinModal(self.bot, self.project))
 
 
 class ProjectAdminView(ui.View):
-    def __init__(self, bot):
+    def __init__(self, bot, project=PROJECT_KEY):
         super().__init__(timeout=None)
         self.bot = bot
+        self.project = project
+        scope_custom_ids(self, project)
 
     @ui.button(label="Add Filament to Pool", style=discord.ButtonStyle.primary, custom_id="filament_project_add")
     async def add_pool_btn(self, interaction: discord.Interaction, button: ui.Button):
@@ -714,7 +803,7 @@ class ProjectAdminView(ui.View):
             await interaction.response.send_message("Administrator permissions required.", ephemeral=True)
             return
         await interaction.response.send_modal(
-            AddFilamentModal(self.bot, admin_only=False, projects=[PROJECT_KEY]))
+            AddFilamentModal(self.bot, admin_only=False, projects=[self.project]))
 
     @ui.button(label="Add Existing to Pool", style=discord.ButtonStyle.primary, custom_id="filament_project_attach")
     async def attach_pool_btn(self, interaction: discord.Interaction, button: ui.Button):
@@ -722,7 +811,7 @@ class ProjectAdminView(ui.View):
             await interaction.response.send_message("Administrator permissions required.", ephemeral=True)
             return
         view = ui.View()
-        select = AttachToProjectSelect(self.bot)
+        select = AttachToProjectSelect(self.bot, self.project)
         if not select.options or select.options[0].value == "-1":
             await interaction.response.send_message("Every filament is already in the project pool.", ephemeral=True)
             return
@@ -736,7 +825,7 @@ class ProjectAdminView(ui.View):
             await interaction.response.send_message("Administrator permissions required.", ephemeral=True)
             return
         view = ui.View()
-        select = DetachFromProjectSelect(self.bot)
+        select = DetachFromProjectSelect(self.bot, self.project)
         if not select.options or select.options[0].value == "-1":
             await interaction.response.send_message("The project pool is already empty.", ephemeral=True)
             return
@@ -749,11 +838,11 @@ class ProjectAdminView(ui.View):
         if not is_admin(interaction):
             await interaction.response.send_message("Administrator permissions required.", ephemeral=True)
             return
-        csv_data = self.bot.data_manager.export_logs_to_csv(project=PROJECT_KEY)
+        csv_data = self.bot.data_manager.export_logs_to_csv(project=self.project)
         import io
-        file = discord.File(io.StringIO(csv_data), filename="wheelchair_filament_logs.csv")
+        file = discord.File(io.StringIO(csv_data), filename=f"{self.project}_filament_logs.csv")
         await interaction.response.send_message(
-            f"Here is the {PROJECT_DISPLAY_NAME} usage log:", file=file, ephemeral=True)
+            f"Here is the {project_display(self.project)} usage log:", file=file, ephemeral=True)
 
 
 # --- Public Dashboard View ---
@@ -790,7 +879,12 @@ class AdminDashboardView(ui.View):
 
     @ui.button(label="Add Filament", style=discord.ButtonStyle.primary, custom_id="filament_admin_add")
     async def add_filament_btn(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.send_modal(AddFilamentModal(self.bot, admin_only=False))
+        # Ask which pool first so project spools can be created from the main
+        # panel, not only from the project channel.
+        view = ui.View()
+        view.add_item(PoolDestinationSelect(self.bot))
+        await interaction.response.send_message(
+            "Where should the new spool go?", view=view, ephemeral=True)
 
     @ui.button(label="Add Admin Filament", style=discord.ButtonStyle.primary, custom_id="filament_admin_add_admin")
     async def add_admin_filament_btn(self, interaction: discord.Interaction, button: ui.Button):
@@ -872,8 +966,10 @@ class FilamentBot(discord.Client):
         # Register persistent views so buttons work after restart
         self.add_view(PublicDashboardView(self))
         self.add_view(AdminDashboardView(self))
-        self.add_view(ProjectDashboardView(self))
-        self.add_view(ProjectAdminView(self))
+        # One dashboard + one pool-controls view per registered project.
+        for key in PROJECTS:
+            self.add_view(ProjectDashboardView(self, key))
+            self.add_view(ProjectAdminView(self, key))
         self.auto_refresh.start()
 
     @tasks.loop(minutes=1)
@@ -891,6 +987,29 @@ class FilamentBot(discord.Client):
                 await guild.me.edit(nick=bot_config.FILAMENT_BOT_NICKNAME)
             except:
                 pass
+
+    # --- Per-project config ---
+    #
+    # Stored as config['projects'][key] = {channel_id, message_id, admin_message_id}.
+    # The flat project_channel_id / project_message_id / project_admin_message_id
+    # keys written by the first version of this feature are still read as a
+    # fallback, so an existing filament_config.json keeps working.
+
+    def project_ids(self, project):
+        entry = (self.config.get('projects') or {}).get(project) or {}
+        if project == PROJECT_KEY:
+            return {
+                'channel_id': entry.get('channel_id') or self.config.get('project_channel_id'),
+                'message_id': entry.get('message_id') or self.config.get('project_message_id'),
+                'admin_message_id': entry.get('admin_message_id') or self.config.get('project_admin_message_id'),
+            }
+        return dict(entry)
+
+    def set_project_ids(self, project, **ids):
+        entry = self.config.setdefault('projects', {}).setdefault(project, {})
+        for key, value in ids.items():
+            if value is not None:
+                entry[key] = value
 
     def get_public_embed(self):
         stats = self.data_manager.get_consumption_stats()
@@ -941,18 +1060,18 @@ class FilamentBot(discord.Client):
         embed.add_field(name="Instructions", value="• **Add Filament**: Register a new spool.\n• **Export Logs**: Download usage history as CSV.")
         return embed
 
-    def get_project_embed(self):
-        """Dashboard for the project channel.
+    def get_project_embed(self, project=PROJECT_KEY):
+        """Dashboard for one project channel.
 
         Shows the project pool (spools tagged into the project) alongside two sets
         of numbers: this project's usage, and the all-filament usage it feeds into.
         """
-        project_items = self.data_manager.get_project_inventory(PROJECT_KEY)
-        project_stats = self.data_manager.get_project_stats(PROJECT_KEY)
+        project_items = self.data_manager.get_project_inventory(project)
+        project_stats = self.data_manager.get_project_stats(project)
         overall_stats = self.data_manager.get_consumption_stats()
 
         embed = discord.Embed(
-            title=f"{PROJECT_DISPLAY_NAME} - Filament",
+            title=f"{project_display(project)} - Filament",
             description=("Filament allocated to this project. Usage logged here is also counted in the "
                          "main filament stats."),
             color=PROJECT_ACCENT
@@ -987,9 +1106,9 @@ class FilamentBot(discord.Client):
         embed.timestamp = discord.utils.utcnow()
         return embed
 
-    def get_project_admin_embed(self):
+    def get_project_admin_embed(self, project=PROJECT_KEY):
         embed = discord.Embed(
-            title=f"{PROJECT_DISPLAY_NAME} - Project Controls",
+            title=f"{project_display(project)} - Project Controls",
             description="Manage which filament is allocated to this project. Project filament is always part of the main pool.",
             color=PROJECT_ACCENT
         )
@@ -1017,17 +1136,17 @@ class FilamentBot(discord.Client):
 
         # Admin dashboard doesn't need constant updating as it's static menu, but good to know
 
-        # Update Project Dashboard
-        proj_chan_id = self.config.get('project_channel_id')
-        proj_msg_id = self.config.get('project_message_id')
-
-        if proj_chan_id and proj_msg_id:
+        # Update every registered project dashboard
+        for key in PROJECTS:
+            ids = self.project_ids(key)
+            if not (ids.get('channel_id') and ids.get('message_id')):
+                continue
             try:
-                channel = self.get_channel(proj_chan_id) or await self.fetch_channel(proj_chan_id)
-                message = await channel.fetch_message(proj_msg_id)
-                await message.edit(embed=self.get_project_embed(), view=ProjectDashboardView(self))
+                channel = self.get_channel(ids['channel_id']) or await self.fetch_channel(ids['channel_id'])
+                message = await channel.fetch_message(ids['message_id'])
+                await message.edit(embed=self.get_project_embed(key), view=ProjectDashboardView(self, key))
             except Exception as e:
-                print(f"Failed to update the project dashboard: {e}")
+                print(f"Failed to update the {key} project dashboard: {e}")
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -1055,49 +1174,66 @@ class FilamentBot(discord.Client):
                 print(f"FilamentBot failed to post admin setup: {e}")
             return
 
-        # Project Setup Command (3D Printed Wheelchair)
-        if message.content.startswith('!wheelchair setup'):
+        # Project setup: !project setup <key>, with !wheelchair setup as an alias
+        project_key = None
+        if message.content.startswith('!project setup'):
+            parts = message.content.split()
+            if len(parts) < 3 or not parts[2].strip():
+                await message.channel.send(
+                    "Usage: `!project setup <key>`. Known projects: " + ", ".join(PROJECTS))
+                return
+            project_key = parts[2].strip().lower()
+            if project_key not in PROJECTS:
+                await message.channel.send(
+                    f"❌ Unknown project `{project_key}`. Known projects: " + ", ".join(PROJECTS))
+                return
+        elif message.content.startswith('!wheelchair setup'):
+            project_key = PROJECT_KEY
+
+        if project_key:
             if not message.author.guild_permissions.administrator:
                 await message.channel.send("❌ Admin permissions required.")
                 return
 
-            project_channel_id = env_int('PROJECT_WHEELCHAIR_CHANNEL_ID')
+            display = project_display(project_key)
+            channel_env = project_channel_env(project_key)
+            project_channel_id = env_int(channel_env)
             if not project_channel_id:
-                await message.channel.send("❌ Missing `PROJECT_WHEELCHAIR_CHANNEL_ID` in `.env`.")
+                await message.channel.send(f"❌ Missing `{channel_env}` in `.env`.")
                 return
-            if not project_pin_configured():
+            if not project_pin_configured(project_key):
                 # Loud, because otherwise every project log attempt just gets refused.
                 await message.channel.send(
-                    "⚠️ `PROJECT_WHEELCHAIR_PIN` is not set in `.env`, so project usage logging "
-                    "will refuse every attempt until it is."
+                    f"⚠️ `{project_pin_env(project_key)}` is not set in `.env`, so {display} usage "
+                    f"logging will refuse every attempt until it is."
                 )
 
             try:
                 project_channel = await self.fetch_channel(project_channel_id)
             except Exception as e:
-                await message.channel.send(f"❌ Could not find the project channel: {e}")
+                await message.channel.send(f"❌ Could not find the {display} channel: {e}")
                 return
 
             # Post the project dashboard (PIN-gated logging)
             try:
                 project_msg = await project_channel.send(
-                    embed=self.get_project_embed(), view=ProjectDashboardView(self))
-                self.config['project_channel_id'] = project_channel.id
-                self.config['project_message_id'] = project_msg.id
-                await message.channel.send(f"✅ Project dashboard deployed to {project_channel.mention}")
+                    embed=self.get_project_embed(project_key),
+                    view=ProjectDashboardView(self, project_key))
+                self.set_project_ids(project_key, channel_id=project_channel.id, message_id=project_msg.id)
+                await message.channel.send(f"✅ {display} dashboard deployed to {project_channel.mention}")
             except Exception as e:
-                await message.channel.send(f"❌ Failed to post the project dashboard: {e}")
+                await message.channel.send(f"❌ Failed to post the {display} dashboard: {e}")
 
             # Post the project pool controls
             try:
                 project_admin_msg = await project_channel.send(
-                    embed=self.get_project_admin_embed(), view=ProjectAdminView(self))
-                self.config['project_admin_message_id'] = project_admin_msg.id
-                await message.channel.send(f"✅ Project pool controls deployed to {project_channel.mention}")
+                    embed=self.get_project_admin_embed(project_key),
+                    view=ProjectAdminView(self, project_key))
+                self.set_project_ids(project_key, admin_message_id=project_admin_msg.id)
+                await message.channel.send(f"✅ {display} pool controls deployed to {project_channel.mention}")
             except Exception as e:
-                await message.channel.send(f"❌ Failed to post the project pool controls: {e}")
+                await message.channel.send(f"❌ Failed to post the {display} pool controls: {e}")
 
-            # Only the projects that actually deployed get remembered.
             save_config(self.config)
             return
 
@@ -1156,14 +1292,15 @@ class FilamentBot(discord.Client):
             if self.config.get('public_message_id'):
                 keep_ids.add(int(self.config['public_message_id']))
 
-        # The project channel is kept clean the same way, with both its dashboard
-        # and its pool controls protected.
-        project_channel_id = self.config.get('project_channel_id')
-        if project_channel_id:
-            tracked_channels.add(int(project_channel_id))
-            for key in ('project_message_id', 'project_admin_message_id'):
-                if self.config.get(key):
-                    keep_ids.add(int(self.config[key]))
+        # Project channels are kept clean the same way, with each project's
+        # dashboard and pool controls protected from deletion.
+        for key in PROJECTS:
+            ids = self.project_ids(key)
+            if ids.get('channel_id'):
+                tracked_channels.add(int(ids['channel_id']))
+                for id_key in ('message_id', 'admin_message_id'):
+                    if ids.get(id_key):
+                        keep_ids.add(int(ids[id_key]))
 
         if message.channel.id in tracked_channels:
             if message.id in keep_ids:
