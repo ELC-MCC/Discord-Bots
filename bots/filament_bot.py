@@ -1354,6 +1354,12 @@ class FilamentBot(discord.Client):
             if message.id in keep_ids:
                 return
 
+            # Never delete another bot's message. The stream bot posts a live
+            # printer feed into a project channel, and this cleanup must not eat
+            # it. Human chatter is still cleared.
+            if getattr(message.author, 'bot', False):
+                return
+
             # Delete user messages to keep the channel clean
             try:
                 await message.delete(delay=1) # Small delay to ensure it's processed

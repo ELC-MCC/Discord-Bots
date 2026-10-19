@@ -32,13 +32,17 @@ def load_stream_config():
         url = os.getenv(f'STREAM_{i}_URL')
         title = os.getenv(f'STREAM_{i}_TITLE', f"Stream {i}")
         printer_url = os.getenv(f'PRINTER_{i}_URL', "")
+        # Optional. Blank means "post to STREAM_CHANNEL_ID". Set it to put this
+        # stream in a different channel, e.g. a project channel.
+        channel_id = (os.getenv(f'STREAM_{i}_CHANNEL_ID') or "").strip()
         
         if url:
              streams.append({
                   "id": i,
                   "title": title,
                   "url": url,
-                  "printer_url": printer_url
+                  "printer_url": printer_url,
+                  "channel_id": channel_id
              })
              
     if streams:
@@ -55,6 +59,7 @@ class AddStreamModal(discord.ui.Modal, title="Add New Stream"):
     title_inp = discord.ui.TextInput(label="Stream Name", placeholder="e.g. Printer 1", max_length=50)
     url_inp = discord.ui.TextInput(label="Camera MJPEG URL", placeholder="http://...", style=discord.TextStyle.short)
     printer_url_inp = discord.ui.TextInput(label="Printer API URL", placeholder="Optional (http://...:7125)", required=False)
+    channel_inp = discord.ui.TextInput(label="Channel ID", placeholder="Optional. Blank = STREAM_CHANNEL_ID", required=False, max_length=25)
 
     def __init__(self, bot):
         super().__init__()
@@ -70,7 +75,8 @@ class AddStreamModal(discord.ui.Modal, title="Add New Stream"):
             "id": new_id,
             "title": self.title_inp.value,
             "url": self.url_inp.value,
-            "printer_url": self.printer_url_inp.value
+            "printer_url": self.printer_url_inp.value,
+            "channel_id": self.channel_inp.value.strip()
         })
         save_stream_config(streams)
         
@@ -81,6 +87,7 @@ class EditStreamModal(discord.ui.Modal, title="Edit Stream"):
     title_inp = discord.ui.TextInput(label="Stream Name", max_length=50)
     url_inp = discord.ui.TextInput(label="Camera MJPEG URL", style=discord.TextStyle.short)
     printer_url_inp = discord.ui.TextInput(label="Printer API URL", required=False)
+    channel_inp = discord.ui.TextInput(label="Channel ID", placeholder="Optional. Blank = STREAM_CHANNEL_ID", required=False, max_length=25)
 
     def __init__(self, bot, stream_params):
         super().__init__()
@@ -90,6 +97,7 @@ class EditStreamModal(discord.ui.Modal, title="Edit Stream"):
         self.title_inp.default = stream_params.get('title', '')
         self.url_inp.default = stream_params.get('url', '')
         self.printer_url_inp.default = stream_params.get('printer_url', '')
+        self.channel_inp.default = str(stream_params.get('channel_id') or '')
 
     async def on_submit(self, interaction: discord.Interaction):
         streams = load_stream_config()
@@ -98,6 +106,7 @@ class EditStreamModal(discord.ui.Modal, title="Edit Stream"):
                 s['title'] = self.title_inp.value
                 s['url'] = self.url_inp.value
                 s['printer_url'] = self.printer_url_inp.value
+                s['channel_id'] = self.channel_inp.value.strip()
                 break
         
         save_stream_config(streams)
@@ -221,8 +230,10 @@ class StreamBot(discord.Client):
             self.channel_id = 0
 
         if self.channel_id == 0:
-            logger.warning("STREAM_CHANNEL_ID not set or invalid.")
-            return
+            # Not fatal any more: a stream may carry its own channel_id, so let
+            # start_streams work that out rather than bailing here.
+            logger.warning("STREAM_CHANNEL_ID not set or invalid. "
+                           "Only streams with their own channel_id will start.")
 
         # Set Nickname
         for guild in self.guilds:
@@ -235,16 +246,42 @@ class StreamBot(discord.Client):
         await self.start_streams()
         self.has_started = True
 
+    def resolve_stream_channel(self, stream):
+        """Channel for one stream, or None to fall back to STREAM_CHANNEL_ID.
+
+        A stream may name its own channel (config `channel_id`, or the
+        STREAM_<n>_CHANNEL_ID env var) so a printer feed can live in its own
+        channel, for example a project channel. Anything unusable logs and falls
+        back rather than killing the stream.
+        """
+        raw = stream.get('channel_id')
+        if raw in (None, "", 0, "0"):
+            return None
+
+        try:
+            channel_id = int(raw)
+        except (TypeError, ValueError):
+            logger.error(f"Stream {stream.get('id')} has a non-numeric channel_id ({raw!r}); "
+                         f"using the default stream channel")
+            return None
+
+        channel = self.get_channel(channel_id)
+        if not channel:
+            logger.error(f"Stream {stream.get('id')} channel {channel_id} not found; "
+                         f"using the default stream channel")
+            return None
+        return channel
+
     async def start_streams(self):
         # Cancel existing tasks if any
         for task in self.stream_tasks:
             task.cancel()
         self.stream_tasks = []
 
-        channel = self.get_channel(self.channel_id)
-        if not channel:
-            logger.error(f"Stream Channel ID {self.channel_id} not found.")
-            return
+        default_channel = self.get_channel(self.channel_id)
+        if not default_channel:
+            logger.warning(f"Default stream channel {self.channel_id} not found. "
+                           f"Only streams with their own channel_id can start.")
 
         # Start streams from config
         streams = load_stream_config()
@@ -253,11 +290,18 @@ class StreamBot(discord.Client):
             title = stream.get('title', f"Stream {stream.get('id')}")
             index = stream.get('id')
             p_url = stream.get('printer_url', "")
-            
-            if url:
-                print(f"Starting stream {index}: {title}")
-                task = self.loop.create_task(self.stream_loop(channel, url, title, index, p_url))
-                self.stream_tasks.append(task)
+
+            if not url:
+                continue
+
+            channel = self.resolve_stream_channel(stream) or default_channel
+            if not channel:
+                logger.error(f"No channel available for stream {index} ({title}); skipping it.")
+                continue
+
+            print(f"Starting stream {index}: {title} -> #{getattr(channel, 'name', channel.id)}")
+            task = self.loop.create_task(self.stream_loop(channel, url, title, index, p_url))
+            self.stream_tasks.append(task)
 
     async def get_frame(self, session, url):
         buffer = b""
@@ -585,6 +629,10 @@ class StreamBot(discord.Client):
             task.cancel()
         self.stream_tasks = []
 
+        # Only the default stream channel is purged. Streams that live in their own
+        # channel (a project channel, say) are deliberately left alone: that channel
+        # also holds other bots' dashboards, and each stream reuses its own message
+        # instead of accumulating duplicates.
         channel = self.get_channel(self.channel_id)
         if channel:
             try:

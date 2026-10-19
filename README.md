@@ -91,6 +91,7 @@ Streams MJPEG video from local network sources to a Discord channel. Supports mu
 *   **Smart Recovery:** Automatically attempts to reconnect if a stream goes offline (e.g., printer power cycle).
 *   **Wake-on-Connect:** Mimics a browser connection to force "lazy" cameras to start streaming immediately.
 *   **Persistence:** Reuses existing stream messages on restart to prevent channel clutter.
+*   **Per-Stream Channels:** A stream can post to its own channel rather than the main stream channel, so a printer feed can live in a project channel. Set `STREAM_X_CHANNEL_ID`, or fill the `Channel ID` field in the admin panel. Only the main `STREAM_CHANNEL_ID` is ever purged by `!restart_streams`; a stream's own channel is left untouched so other bots' dashboards in it survive.
 
 #### **Configuration (.env):**
 1.  Add `STREAM_BOT_TOKEN`.
@@ -115,7 +116,40 @@ PRINTER_2_URL=ws://192.168.1.102:3030/websocket
 ```
 
 #### **Commands:**
-*   `!restart_streams` - **Admin Only** - **Purges the last 100 messages** in the stream channel and forces a clean restart of all stream tasks. Use this if streams get stuck or de-synced.
+*   `!restart_streams` - **Admin Only** - **Purges the last 100 messages** in the main stream channel and forces a clean restart of all stream tasks. Use this if streams get stuck or de-synced.
+
+#### **Streaming a Creality K2 series printer**
+
+The K2 family (K2, K2 Pro, K2 Plus) does not expose an MJPEG camera. Its feed is WebRTC/H.264, so this bot cannot read it directly, since it scrapes JPEG frames out of a multipart MJPEG stream. The fix is to run **go2rtc** (v1.9.10 or newer) alongside the bots: it has a native Creality WebRTC source and can re-expose that feed as MJPEG.
+
+`go2rtc.yaml`:
+
+```yaml
+streams:
+  k2pro:
+    - webrtc:http://192.168.1.50:8000/call/webrtc_local#format=creality
+    - ffmpeg:k2pro#video=mjpeg
+```
+
+The second line is required. A go2rtc MJPEG output only works if the stream carries the MJPEG codec, and the Creality source is H.264, so without the ffmpeg transcode `/api/stream.mjpeg` returns nothing.
+
+Then point a stream at go2rtc's MJPEG output, optionally into the project channel:
+
+```ini
+STREAM_2_URL=http://127.0.0.1:1984/api/stream.mjpeg?src=k2pro
+STREAM_2_TITLE=Creality K2 Pro
+# Post this feed into the wheelchair project channel instead of the stream channel
+STREAM_2_CHANNEL_ID=<PROJECT_WHEELCHAIR_CHANNEL_ID>
+```
+
+Check the bridge before involving Discord. The snapshot is the quickest test, and returns a single JPEG only if the whole pipeline works:
+
+```
+curl -o /tmp/k2pro.jpg "http://127.0.0.1:1984/api/frame.jpeg?src=k2pro"
+curl -sI "http://127.0.0.1:1984/api/stream.mjpeg?src=k2pro"
+```
+
+Replace the printer address with the K2 Pro's, and give it a static IP lease so it cannot move. Printer temperature and progress are a separate concern: they come from a Moonraker API and the K2 series does not document one, so leave `PRINTER_X_URL` unset unless you confirm it on your machine. The camera feed works without it.
 
 
 
