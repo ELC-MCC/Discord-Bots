@@ -19,36 +19,66 @@ logger = logging.getLogger("StreamBot")
 CONFIG_FILE = "data/stream_config.json"
 
 def load_stream_config():
+    """Streams from data/stream_config.json, plus any that exist only in .env.
+
+    The file stays the source of truth for a stream it already contains, so an
+    admin-panel edit always wins. Env-defined streams are still added when the
+    file has no entry for that id.
+
+    This used to return early whenever the file existed, which meant .env was
+    ignored completely after the first run. Adding STREAM_2_* to .env on a server
+    that already had the file therefore did nothing at all, with no warning.
+    """
+    streams = []
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
-                return json.load(f)
+                streams = json.load(f)
         except Exception as e:
             logger.error(f"Failed to load stream config: {e}")
-            
-    # Fallback to env vars for initial migration/setup
-    streams = []
+            streams = []
+
+    if not isinstance(streams, list):
+        logger.error(f"{CONFIG_FILE} does not contain a list; ignoring it")
+        streams = []
+
+    known_ids = {s.get('id') for s in streams if isinstance(s, dict)}
+
+    added = []
     for i in range(1, 10):
+        if i in known_ids:
+            continue
         url = os.getenv(f'STREAM_{i}_URL')
+        if not url:
+            continue
         title = os.getenv(f'STREAM_{i}_TITLE', f"Stream {i}")
         printer_url = os.getenv(f'PRINTER_{i}_URL', "")
         # Optional. Blank means "post to STREAM_CHANNEL_ID". Set it to put this
         # stream in a different channel, e.g. a project channel.
         channel_id = (os.getenv(f'STREAM_{i}_CHANNEL_ID') or "").strip()
-        
-        if url:
-             streams.append({
-                  "id": i,
-                  "title": title,
-                  "url": url,
-                  "printer_url": printer_url,
-                  "channel_id": channel_id
-             })
-             
+        added.append({
+            "id": i,
+            "title": title,
+            "url": url,
+            "printer_url": printer_url,
+            "channel_id": channel_id,
+        })
+
+    if added:
+        streams.extend(added)
+        try:
+            save_stream_config(streams)
+        except Exception as e:
+            logger.error(f"Failed to persist env-defined streams: {e}")
+
     if streams:
-         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-         save_stream_config(streams)
-         
+        logger.info("Loaded {} stream(s): {}".format(
+            len(streams),
+            ", ".join(f"{s.get('id')}={s.get('title')}" for s in streams if isinstance(s, dict))))
+    else:
+        logger.warning("No streams configured. Set STREAM_1_URL (and friends) in .env, "
+                       "or add one from the admin panel.")
+
     return streams
 
 def save_stream_config(streams):
